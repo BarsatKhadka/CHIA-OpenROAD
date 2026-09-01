@@ -1,0 +1,64 @@
+# chia-orfs — an ORFS execution environment that is also a valid CHIA Ray worker.
+#
+# openroad/orfs has the tools (OpenROAD, yosys, KLayout, PDKs) but no Ray.
+# rayproject/ray has Ray but no tools. Neither can be a CHIA worker; this is
+# the image that can. Built FROM the ORFS side because that is 6.5 GB of
+# compiled tools and PDK collateral, while the Ray side is a pip install.
+#
+# Build (context is the chia checkout, so `pip install /tmp/chia` sees the source):
+#
+#   docker buildx build --platform linux/amd64 \
+#       -f dockerfiles/OrfsDockerfile \
+#       -t chia-orfs:latest \
+#       external/chia
+#
+# Run a flow the same way a ChiaFunction body will (from inside, not via `docker run`):
+#
+#   docker run --rm --platform linux/amd64 -v "$OUT:/work" chia-orfs:latest bash -lc '
+#     source /OpenROAD-flow-scripts/env.sh
+#     make -C /OpenROAD-flow-scripts/flow -j1 WORK_HOME=/work \
+#          DESIGN_CONFIG=./designs/sky130hd/gcd/config.mk'
+
+FROM openroad/orfs:latest
+
+# --- Keep ORFS on its own interpreter ------------------------------------
+# flow/scripts/variables.mk does:  PYTHON_EXE ?= $(shell command -v python3)
+# so ORFS picks its Python off PATH. Once `conda activate chia_env` is in
+# effect (which is how the Ray worker starts), that would silently become
+# conda's 3.10.19 — which lacks the yaml/pandas that ORFS's helper scripts
+# import. `?=` defers to the environment, so pinning it here wins.
+ENV PYTHON_EXE=/usr/bin/python3
+
+# --- Miniforge + a 3.10.19 env named chia_env ----------------------------
+# CHIA pins 3.10.19 to match its other worker images; the ORFS base ships
+# Ubuntu 22.04's 3.10.12. The env is named chia_env because that is what
+# CHIA's cluster.yaml worker_env_commands activate by convention.
+ENV CONDA_DIR=/opt/conda
+ENV CHIA_ENV_DIR=${CONDA_DIR}/envs/chia_env
+
+RUN set -eux; \
+    arch="$(uname -m)"; \
+    url="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${arch}.sh"; \
+    curl -fsSL -o /tmp/miniforge.sh "$url"; \
+    bash /tmp/miniforge.sh -b -p "${CONDA_DIR}"; \
+    rm /tmp/miniforge.sh; \
+    "${CONDA_DIR}/bin/conda" config --system --set auto_activate_base false; \
+    "${CONDA_DIR}/bin/conda" create -y -n chia_env python=3.10.19; \
+    "${CONDA_DIR}/bin/conda" clean -afy
+
+# Make `conda activate chia_env` work in login shells (bash -lc), which is how
+# CHIA's cluster.yaml issues its worker commands.
+RUN "${CONDA_DIR}/bin/conda" init --system --no-user bash
+
+# --- Ray + chia into chia_env --------------------------------------------
+# chia's pyproject pins ray[default]==2.54.0, so installing chia brings the
+# matching Ray with it — no second pin to drift out of sync.
+COPY . /tmp/chia
+RUN set -eux; \
+    "${CHIA_ENV_DIR}/bin/pip" install --no-cache-dir /tmp/chia; \
+    rm -rf /tmp/chia
+
+# Convenience for interactive use and for `chia up` worker commands.
+ENV PATH=${CHIA_ENV_DIR}/bin:${PATH}
+
+WORKDIR /OpenROAD-flow-scripts/flow

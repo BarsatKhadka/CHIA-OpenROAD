@@ -1,0 +1,24 @@
+# External dependencies — cloned, not vendored (see docs/03-setup.md)
+external/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# CHIA / Ray runtime
+/tmp/ray/
+chia_profile*/
+*.log
+
+# ORFS run artifacts
+runs/
+results/
+logs/
+objects/
+reports/
+
+# ORFS run trees (checkpoints, manifests, logs)
+experiments/smoke/
