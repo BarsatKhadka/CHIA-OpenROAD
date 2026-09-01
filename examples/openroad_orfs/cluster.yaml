@@ -1,0 +1,49 @@
+# Minimal CHIA cluster for the ORFS backend: one machine acting as both head
+# and worker. Enough to exercise CHIA's bring-up (container start, ray start
+# inside it, resource declaration) without committing to a worker shape — the
+# real sizing needs the medium design's memory high-water mark, which we do not
+# have yet. chameleon's DRC alone peaked at 9.2 GB.
+#
+#   chia up examples/openroad_orfs/cluster.yaml
+#   chia status
+#   chia down examples/openroad_orfs/cluster.yaml
+#
+# Scaling later means raising num_workers and listing more IPs (or adding a
+# gcp_nodes: section so CHIA provisions them itself).
+
+cluster_name: chia_openroad
+
+available_node_types:
+    orfs_worker:
+        # One ORFS flow is `make -j1`, so a "slot" is roughly one candidate.
+        # 4 here matches the 4 vCPUs; memory, not cores, is the real limit.
+        resources: {"orfs": 4}
+        num_workers: 1
+        compatible_ips: ["10.138.0.2"]
+        docker:
+            image: "chia-orfs:latest"
+            container_name: "chia-orfs-${USER}"
+            # The image is built on the machine, not in a registry. Pulling
+            # would fail; there is nothing to pull from.
+            pull_before_run: False
+            run_options:
+                # Ray's object store lives in /dev/shm; Docker's 64 MB default
+                # makes the raylet fail to start.
+                - --shm-size=4g
+
+auth:
+    ssh_user: barsat
+
+provider:
+    head_ip: 10.138.0.2
+
+# The head runs on the HOST, so it needs conda's ray by absolute path.
+head_start_ray_commands:
+    - "/opt/conda/envs/chia_env/bin/ray stop"
+    - "/opt/conda/envs/chia_env/bin/ray start --head --port=6379 --include-dashboard=False --dashboard-agent-listen-port=0"
+
+# These run INSIDE the container (docker exec ... bash --login), where the
+# image already puts chia_env's bin on PATH.
+worker_start_ray_commands:
+    - "ray stop"
+    - "ray start --address=$RAY_HEAD_IP:6379 --dashboard-agent-listen-port=0"
