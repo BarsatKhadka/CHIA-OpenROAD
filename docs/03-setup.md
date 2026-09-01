@@ -202,3 +202,63 @@ These are not new dependencies, but they shortcut real work:
 `external/chia/chia/vlsi/` contains exactly `hammer.py` and `sram_cacti/`. There is no
 OpenROAD backend anywhere in the tree — the proposal's premise checks out against the
 current `main`.
+
+## Signoff: DRC works, LVS does not (sky130hd, ORFS 26Q3)
+
+**DRC is clean.** gcd/sky130hd: 0 violations, ~8 s.
+
+**LVS does not work as shipped**, and the investigation turned up something that
+changed our own code.
+
+### `make lvs` exits 0 when LVS fails
+
+`platforms/sky130hd/lvs/sky130hd.lylvs` ends:
+
+```ruby
+if ! compare
+  #raise "ERROR : Netlists don't match"     # <- commented out
+  puts "ERROR : Netlists don't match"
+end
+```
+
+So the process prints an error and exits 0. Verified: `make lvs` returned 0 on a
+run whose log says the netlists do not match. Trusting the return code would
+certify a layout as LVS-clean when it is not — a false pass inside the layer the
+agent/verification split depends on being trustworthy.
+
+`run_stage` therefore reads the *report* for `drc` and `lvs`
+(`_read_signoff`): `<item>` count in `6_drc.lyrdb`, and the
+match/no-match verdict in `6_lvs.log`. `success` reflects that, not the exit
+code. DRC is the same shape — the report is written either way.
+
+### Two further blockers, not resolved
+
+1. **The CDL is in a dialect KLayout 0.30.7 cannot parse.**
+   `platforms/sky130hd/cdl/sky130hd.cdl` uses Cadence conventions: `rI12 VGND LO
+   short` (an R device with a model but no value) and `XI1 <nets> / <cell>` (the
+   `/` master-name separator, read as an extra net). Both can be rewritten via
+   the `CDL_FILE` make variable without touching the PDK, after which LVS runs.
+2. **The comparison then fails.** gcd declares two `conb_1` tie cells that
+   KLayout extracts zero devices for. `short` models a metal tie, not a
+   component — giving it a value creates devices the layout lacks, and deleting
+   it leaves `HI`/`LO` floating in the schematic while the layout ties them.
+   Both directions mismatch; this needs deck support, not a text substitution.
+
+### Why this looks upstream rather than ours
+
+- No ORFS CI target runs `lvs`.
+- The sky130 deck carries `NangateOpenCellLibrary` pin-equivalence rules.
+- Its `raise` is suppressed, so failures are easy to miss.
+- ORFS's own bundled KLayout cannot read ORFS's own CDL.
+
+### Status
+
+Parked. DRC works and is used. LVS is a stated deliverable (expected result #2)
+and remains open — options are `ihp-sg13g2` (the other open platform with both
+decks), a different KLayout, or reporting upstream. It blocks none of steps 4-7.
+
+### Incidental: a memory figure
+
+`chameleon` DRC peaked at **9.2 GB** and was OOM-killed under Docker Desktop's
+9.7 GB ceiling. First real number for a non-trivial design, and an input to
+cluster sizing — several concurrent candidates will not fit on a small box.

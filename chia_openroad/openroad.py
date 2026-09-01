@@ -135,6 +135,8 @@ class OrfsStageResult:
     stage_metrics: dict[str, dict] = field(default_factory=dict)
     #: SUMMARY_KEYS resolved against whatever metrics are available.
     summary: dict[str, float] = field(default_factory=dict)
+    #: DRC/LVS verdict, read from the report. Only set for those stages.
+    signoff: OrfsSignoff | None = None
     #: Why it failed, when it failed. None on success.
     failure: OrfsFailure | None = None
     #: Stage from which stale artifacts were deleted before this run, if the
@@ -144,6 +146,30 @@ class OrfsStageResult:
     invalidated: list[str] = field(default_factory=list)
     stdout_tail: str = ""
     stderr_tail: str = ""
+
+
+@dataclass
+class OrfsSignoff:
+    """The verdict of a DRC or LVS run, read from the report rather than the
+    exit code.
+
+    ORFS's KLayout decks do not fail the process on a bad result. The sky130hd
+    LVS deck has its ``raise`` commented out::
+
+        if ! compare
+          #raise "ERROR : Netlists don't match"
+          puts "ERROR : Netlists don't match"
+
+    so ``make lvs`` exits 0 whether the netlists match or not. Trusting the
+    return code would certify a layout as LVS-clean when it is not — a false
+    pass inside the layer the whole agent/verification split depends on. DRC is
+    the same shape: the report is written either way, and the violation count is
+    the only thing that means anything.
+    """
+    stage: str                    # "drc" or "lvs"
+    clean: bool | None            # None when no verdict could be found
+    detail: str = ""
+    violations: int | None = None   # DRC only
 
 
 @dataclass
@@ -307,6 +333,42 @@ def _extract_failure(stage: str, dirs: dict[str, str], knobs: dict[str, str],
             return OrfsFailure(stage=stage, step=step, code=None,
                                message=f"{m.group(1)}: {m.group(2).strip()}"[:300],
                                knobs=dict(knobs))
+    return None
+
+
+#: KLayout writes DRC violations as <item> elements in the report database.
+_DRC_ITEM_RE = re.compile(r"<item>")
+
+
+def _read_signoff(stage: str, dirs: dict[str, str]) -> OrfsSignoff | None:
+    """Read the real DRC/LVS verdict out of the report. See :class:`OrfsSignoff`."""
+    if stage == "drc":
+        path = os.path.join(dirs["reports"], "6_drc.lyrdb")
+        if not os.path.isfile(path):
+            return OrfsSignoff(stage, None, "no DRC report was written")
+        try:
+            with open(path, errors="replace") as f:
+                count = len(_DRC_ITEM_RE.findall(f.read()))
+        except OSError as exc:
+            return OrfsSignoff(stage, None, f"could not read DRC report: {exc}")
+        return OrfsSignoff(stage, count == 0, f"{count} violation(s)", violations=count)
+
+    if stage == "lvs":
+        path = os.path.join(dirs["logs"], "6_lvs.log")
+        if not os.path.isfile(path):
+            return OrfsSignoff(stage, None, "no LVS log was written")
+        try:
+            with open(path, errors="replace") as f:
+                text = f.read()
+        except OSError as exc:
+            return OrfsSignoff(stage, None, f"could not read LVS log: {exc}")
+        if "Congratulations" in text and "Netlists match" in text:
+            return OrfsSignoff(stage, True, "netlists match")
+        if "Netlists don't match" in text:
+            return OrfsSignoff(stage, False, "netlists do not match")
+        # No verdict at all usually means the deck died before comparing —
+        # a parse error on the CDL, say. Not clean, but not a mismatch either.
+        return OrfsSignoff(stage, None, "LVS produced no verdict (deck failed before compare?)")
     return None
 
 
@@ -722,14 +784,26 @@ class OpenROADNode(ColocatedNode):
         kind, filename = STAGE_CHECKPOINT[stage]
         checkpoint = os.path.join(dirs[kind], filename)
 
+        # DRC and LVS report their verdict in the report, not the exit code.
+        signoff = _read_signoff(stage, dirs)
+        success = proc.returncode == 0
+        if signoff is not None and signoff.clean is not True:
+            success = False
+            logger.error("ORFS %s did not pass: %s (make exited %s)",
+                         stage, signoff.detail, proc.returncode)
+
         failure = None
         if proc.returncode != 0:
             failure = _extract_failure(stage, dirs, clean_knobs, stdout, stderr)
             logger.error("ORFS %s failed (rc=%s): %s", stage, proc.returncode,
                          failure.as_hint() if failure else "(no recognisable error)")
 
+        if not success and failure is None and signoff is not None:
+            failure = OrfsFailure(stage=stage, step=stage,
+                                  message=signoff.detail, knobs=dict(clean_knobs))
+
         return OrfsStageResult(
-            success=proc.returncode == 0,
+            success=success,
             returncode=proc.returncode,
             stage=stage,
             work_home=work_home,
@@ -743,6 +817,7 @@ class OpenROADNode(ColocatedNode):
             metrics=metrics,
             stage_metrics=stage_metrics,
             summary=_summarize(metrics, stage_metrics),
+            signoff=signoff,
             failure=failure,
             invalidated_from=invalidated_from,
             invalidated=invalidated,
