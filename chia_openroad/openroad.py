@@ -37,6 +37,7 @@ import re
 import signal
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 
@@ -372,6 +373,54 @@ def _read_signoff(stage: str, dirs: dict[str, str]) -> OrfsSignoff | None:
     return None
 
 
+#: How far the extracted slack distribution may sit from ORFS's own reported
+#: worst slack before we refuse to hand it over. Generous, because the two are
+#: not identical measurements -- ours is a path sample, ORFS's is the true
+#: minimum -- but tight enough to catch a wrong STA setup.
+_TIMING_TOLERANCE = 0.25
+
+
+def _timing_csv_agrees(csv_path: str, stage: str, dirs: dict[str, str]) -> bool:
+    """Does an extracted slack CSV match what ORFS reported for the same stage?
+
+    An extracted timing view can look entirely healthy and be measuring the
+    wrong thing -- a missing corner, an unlinked liberty, or (on a design built
+    with OPENROAD_HIERARCHICAL) clock objects that do not correspond to the
+    real ones. Verified on gcd/sky130hd: a hand-rolled read_liberty/read_db/
+    read_sdc session produced a worst path of -2243 ns where ORFS reports
+    -1.538 ns against a 1.1 ns clock.
+    """
+    reported = None
+    for path in sorted(_glob.glob(os.path.join(dirs["logs"], "*.json")), reverse=True):
+        try:
+            with open(path) as f:
+                blob = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        for key, value in blob.items():
+            if key.endswith("__timing__setup__ws") and isinstance(value, (int, float)):
+                reported = value
+                break
+        if reported is not None:
+            break
+    if reported is None:
+        logger.warning("no reported worst slack to check %s against; passing it through",
+                       csv_path)
+        return True
+    try:
+        with open(csv_path) as f:
+            rows = [line.strip() for line in f.read().splitlines()[1:] if line.strip()]
+        worst = min(float(r) for r in rows)
+    except (OSError, ValueError):
+        return False
+    scale = max(abs(reported), 1e-9)
+    if abs(worst - reported) / scale > _TIMING_TOLERANCE:
+        logger.error("extracted worst slack %.4f vs ORFS-reported %.4f (%.0fx off)",
+                     worst, reported, abs(worst / reported) if reported else 0)
+        return False
+    return True
+
+
 def _summarize(metrics: dict, stage_metrics: dict[str, dict]) -> dict[str, float]:
     """SUMMARY_KEYS resolved against the final report, then any stage JSON.
 
@@ -572,6 +621,42 @@ def _match_files(
     return matches, skipped
 
 
+#: How to produce an artifact a surrogate declared in `requires`.
+#:
+#: ORFS writes OpenDB checkpoints and OpenSTA text reports, which is not what a
+#: learned model wants: SwiftCTS parses a DEF for geometry and does
+#: `pd.read_csv(path)["slack"]` for a per-path slack distribution. Rather than
+#: teach every surrogate to read .odb, the node emits what was asked for, from
+#: the stage checkpoint, using OpenROAD itself.
+#:
+#: Each entry is Tcl run against `<stage>.odb`. `$OUT` is substituted with the
+#: destination path.
+ARTIFACT_TCL = {
+    "def": 'write_def $OUT',
+    # A one-column CSV, because that is the shape pandas-based feature code
+    # expects. group_count is generous: the distribution matters more than any
+    # single path, and a truncated tail would bias slack_p10/frac_negative.
+    "timing_rpt": """
+set f [open $OUT w]
+puts $f "slack"
+foreach path [find_timing_paths -path_delay max -group_count 5000] {
+  # get_property returns slack already in the display unit (ns). Passing it
+  # through sta::format_time multiplies by 1e9 a second time and yields
+  # values around -1e15 -- verified against a known -1.4 ns worst slack.
+  puts $f [get_property $path slack]
+}
+close $f
+""",
+}
+
+#: Artifacts ORFS already writes; no Tcl needed, just a path.
+ARTIFACT_FILES = {
+    "odb": ("results", "{stage_odb}"),
+    "clock_period": ("results", "clock_period.txt"),
+    "gds": ("results", "6_final.gds"),
+    "final_def": ("results", "6_final.def"),
+}
+
 #: Where to check feasibility before committing to the expensive part of the
 #: flow. Measured on gcd/sky130hd (91 s of tool time): everything through cts
 #: is 11 s (12%), global+detailed routing is 68 s (75%), finishing is 9 s.
@@ -664,7 +749,8 @@ class OpenROADNode(ColocatedNode):
     test it against, rather than shipped untested.
     """
 
-    _MEMBER_FNS = ("run_stage", "read_metrics", "collect", "list_matches")
+    _MEMBER_FNS = ("run_stage", "emit_artifacts", "read_metrics", "collect",
+                   "list_matches")
     _DEFAULT_BUNDLE = {"CPU": 1, "orfs": 1}
 
     @staticmethod
@@ -834,6 +920,104 @@ class OpenROADNode(ColocatedNode):
             stdout_tail=(stdout or "")[-4000:],
             stderr_tail=(stderr or "")[-4000:],
         )
+
+    @staticmethod
+    @ChiaFunction(resources={"orfs": 1})
+    def emit_artifacts(
+        work_home: str,
+        design_config: str,
+        names: list[str],
+        *,
+        stage: str = "place",
+        orfs_home: str = DEFAULT_ORFS_HOME,
+        variant: str = "base",
+        timeout_seconds: int = 3600,
+    ) -> dict[str, str]:
+        """Produce the artifacts a surrogate declared in ``requires``.
+
+        A surrogate says ``requires = ("def", "timing_rpt")``; the loop passes
+        those names here and gets back ``{name: path}``. Names ORFS already
+        writes are located; the rest are generated by running OpenROAD against
+        the stage checkpoint.
+
+        Returns only what exists — a caller checking for a missing key gets a
+        clear absence rather than a path to nothing.
+        """
+        flow_dir = os.path.join(orfs_home, "flow")
+        work_home = os.path.abspath(work_home)
+        config_path = (design_config if os.path.isabs(design_config)
+                       else os.path.normpath(os.path.join(flow_dir, design_config)))
+        platform, design = _parse_design_config(config_path)
+        dirs = _dirs(work_home, platform, design, variant)
+        stage_odb = os.path.join(dirs["results"], STAGE_CHECKPOINT[stage][1])
+
+        out: dict[str, str] = {}
+        generate: list[str] = []
+        for name in names:
+            if name in ARTIFACT_FILES:
+                kind, template = ARTIFACT_FILES[name]
+                path = os.path.join(dirs[kind],
+                                    template.format(stage_odb=os.path.basename(stage_odb)))
+                if os.path.exists(path):
+                    out[name] = path
+            elif name in ARTIFACT_TCL:
+                generate.append(name)
+            else:
+                logger.warning("no recipe for artifact %r; known: %s", name,
+                               sorted(set(ARTIFACT_FILES) | set(ARTIFACT_TCL)))
+
+        if generate:
+            if not os.path.exists(stage_odb):
+                logger.error("cannot emit %s: no %s", generate, stage_odb)
+                return out
+            # read_db alone restores geometry but no timing view: STA needs
+            # liberty and the stage SDC, or find_timing_paths returns nothing
+            # and the slack CSV comes out as a bare header.
+            libs = sorted(_glob.glob(os.path.join(
+                flow_dir, "platforms", platform, "lib", "*.lib")))
+            if not libs:
+                logger.warning("no liberty found for %s; timing artifacts will be empty",
+                               platform)
+            sdc = os.path.join(dirs["results"], f"{STAGE_CHECKPOINT[stage][1][:-4]}.sdc")
+            script = [f"read_liberty {lib}" for lib in libs]
+            script.append(f"read_db {stage_odb}")
+            if os.path.exists(sdc):
+                script.append(f"read_sdc {sdc}")
+            else:
+                logger.warning("no SDC at %s; timing paths will have no clock", sdc)
+            targets = {}
+            for name in generate:
+                dest = os.path.join(dirs["results"], f"{stage}_{name}."
+                                    + ("def" if name == "def" else "csv"))
+                targets[name] = dest
+                script.append(ARTIFACT_TCL[name].replace("$OUT", dest))
+            with tempfile.NamedTemporaryFile("w", suffix=".tcl", delete=False) as f:
+                f.write("\n".join(script) + "\nexit\n")
+                tcl_path = f.name
+            env = dict(_orfs_env(orfs_home))
+            proc = subprocess.run(["openroad", "-no_init", "-exit", tcl_path],
+                                  cwd=flow_dir, env=env, text=True,
+                                  capture_output=True, timeout=timeout_seconds)
+            os.unlink(tcl_path)
+            if proc.returncode != 0:
+                logger.error("artifact emission failed (rc=%s): %s",
+                             proc.returncode, (proc.stderr or "")[-400:])
+            for name, dest in targets.items():
+                if not (os.path.exists(dest) and os.path.getsize(dest) > 0):
+                    logger.error("artifact %r was not produced at %s", name, dest)
+                    continue
+                if name == "timing_rpt" and not _timing_csv_agrees(dest, stage, dirs):
+                    # Do NOT hand back a plausible-looking file whose numbers are
+                    # wrong: it would feed a surrogate's features and the error
+                    # would surface as "the model is inaccurate".
+                    logger.error(
+                        "%s disagrees with ORFS's own worst slack for this stage; "
+                        "withholding it. The extraction needs to run inside ORFS's "
+                        "configured STA session (source_step_tcl POST PLACE), not a "
+                        "hand-rolled read_liberty/read_db/read_sdc.", dest)
+                    continue
+                out[name] = dest
+        return out
 
     @staticmethod
     @ChiaFunction(resources={"orfs": 1})
