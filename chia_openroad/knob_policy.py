@@ -86,11 +86,16 @@ DEFAULT_KNOBS: tuple[KnobSpec, ...] = (
     KnobSpec("GPL_TIMING_DRIVEN", "place", "choice", values=(0, 1),
              description="let global placement weight timing-critical nets"),
     # --- clock tree (the stage a CTS surrogate screens) ---
-    KnobSpec("CTS_CLUSTER_SIZE", "cts", "int", low=10, high=40,
+    # The CTS bounds match the ranges SwiftCTS was fitted over (its paper,
+    # Table II), because proposing outside them means the surrogate is
+    # extrapolating and cannot say so. A surrogate declares the same numbers in
+    # its `domain`; keeping the policy inside them means the screen is never
+    # consulted about a configuration it was not trained on.
+    KnobSpec("CTS_CLUSTER_SIZE", "cts", "int", low=12, high=30,
              description="max sinks per clock cluster; drives buffer count and clock power"),
-    KnobSpec("CTS_CLUSTER_DIAMETER", "cts", "float", low=10, high=100,
+    KnobSpec("CTS_CLUSTER_DIAMETER", "cts", "float", low=35, high=70,
              description="max cluster diameter in um; trades skew against wirelength"),
-    KnobSpec("CTS_BUF_DISTANCE", "cts", "float", low=30, high=200,
+    KnobSpec("CTS_BUF_DISTANCE", "cts", "float", low=70, high=150,
              description="distance between clock buffers in um"),
     # --- routing ---
     KnobSpec("ROUTING_LAYER_ADJUSTMENT", "floorplan", "float", low=0.1, high=0.7,

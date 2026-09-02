@@ -134,6 +134,31 @@ class SurrogateEvaluator(ABC):
     #: What this predicts: name -> kind. Names of kind "orfs_metric" MUST be
     #: keys of ORFS_METRICS, or they can never be checked against reality.
     predicts: dict[str, str] = {}
+    #: Knob ranges this model was fitted over: ``{knob: (low, high)}``. Empty
+    #: means unbounded.
+    #:
+    #: A learned surrogate is only trustworthy inside its training domain, and
+    #: that domain is usually narrower than what the tool will accept. SwiftCTS
+    #: was fitted over cluster sizes 12-30 while ORFS accepts far more; asking
+    #: it about 40 is extrapolation, and it has no way to say so. Declaring the
+    #: domain lets the loop intersect it with the legal knob ranges and simply
+    #: not ask.
+    domain: dict[str, tuple] = {}
+
+    def in_domain(self, knobs: dict) -> tuple[bool, str]:
+        """Is this configuration inside the range the model was fitted over?"""
+        for name, (low, high) in self.domain.items():
+            if name not in knobs:
+                continue
+            try:
+                value = float(knobs[name])
+            except (TypeError, ValueError):
+                continue
+            if not low <= value <= high:
+                return False, (f"{name}={knobs[name]} is outside {self.name}'s "
+                               f"fitted range [{low}, {high}]; the prediction "
+                               f"would be extrapolation")
+        return True, "ok"
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -247,6 +272,13 @@ def conformance_check(surrogate: SurrogateEvaluator, state: DesignState | None =
                 if v == "orfs_metric" and k not in ORFS_METRICS]
     report(not not_real, "every orfs_metric name is a real ORFS metric",
            f"unknown: {not_real}" if not_real else f"{len(ORFS_METRICS)} known")
+
+    bad_domain = {k: v for k, v in surrogate.domain.items()
+                  if not (isinstance(v, (tuple, list)) and len(v) == 2 and v[0] <= v[1])}
+    report(not bad_domain, "declared domain is well-formed",
+           str(bad_domain) if bad_domain else
+           (", ".join(f"{k}{tuple(v)}" for k, v in surrogate.domain.items())
+            or "unbounded"))
 
     started = time.monotonic()
     try:

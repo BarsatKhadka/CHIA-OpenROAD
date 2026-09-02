@@ -193,3 +193,50 @@ predict until the timing CSV is trustworthy, and its power/wirelength
 predictions cannot be scored until ORFS reports clock-net figures. Both are
 concrete, and both are ORFS-side work rather than interface work — which is
 some evidence the interface is in the right place.
+
+---
+
+# What SwiftCTS's paper changed
+
+Reading arXiv:2606.11348 rather than the code alone changed four things.
+
+**1. It was trained on Sky130 + OpenROAD.** 5,400 CTS runs over 540 placements
+across AES, PicoRV32, SHA-256 and ETHMAC (CTS-Bench). ORFS ships
+`sky130hd/aes`, so aes is a design the model knows and the right first target —
+`gcd` is neither in its training set nor large enough to have a clock tree
+worth optimising.
+
+**2. The knob ranges it was fitted over are narrower than ORFS accepts**
+(Table II):
+
+| knob | fitted range | our old nominal |
+|---|---|---|
+| Cluster Size | 12–30 sinks | 10–40 |
+| Sink Max Diameter | 35–70 um | 10–100 |
+| Buffer Distance | 70–150 um | 30–200 |
+| Max Wire Length | 130–280 um | (no ORFS knob) |
+
+Asking a learned model about a configuration outside its training domain is
+extrapolation, and the model cannot tell you it is happening. So the interface
+gained an optional `domain` declaration and an `in_domain()` check, and the
+default knob policy was tightened to those bounds. This is general, not
+SwiftCTS-specific: every fitted surrogate has a domain.
+
+**3. K-shot calibration is not optional for skew.** Table III's footnote: *"K=0
+yields relative z-scores; absolute ns extraction requires K>=1 to anchor the
+distribution."* Our adapter already omitted `clock_skew_setup` when
+`skew_ns is None`, which turns out to be exactly right — at K=0 there is no
+absolute skew to report. The paper's numbers for going from K=0 to K=1: power
+error 24.5% -> 3.3%, wirelength 56.6% -> 0.6%.
+
+The mechanism is a multiplicative offset, not retraining:
+
+    k_cal = exp( (1/K) * sum log(y_true / y_pred) )
+
+`_k_shot_calibrate` implements it against real ORFS runs through the loop's own
+`run` callable, so those runs land in the same ledger and count against the same
+budget.
+
+**4. Max Wire Length is held at 200 um**, the middle of its fitted range, rather
+than an arbitrary constant — `CTS_CLK_MAX_WIRE_LENGTH` has no ORFS equivalent,
+so the model must see *some* value and it should be an in-domain one.

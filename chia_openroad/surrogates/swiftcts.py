@@ -47,8 +47,19 @@ from chia_openroad.surrogate import DesignState, SurrogateEvaluator, register
 
 logger = logging.getLogger(__name__)
 
-#: Held constant: no ORFS variable controls it (orfs_knob_map.md).
-FIXED_MAX_WIRE = 180.0
+#: Held constant: no ORFS variable controls it (orfs_knob_map.md). Set to the
+#: middle of the range SwiftCTS was fitted over (130-280 um, paper Table II)
+#: rather than an arbitrary value, so the model sees an in-domain input.
+FIXED_MAX_WIRE = 200.0
+
+#: The knob ranges SwiftCTS was actually trained on (paper Table II,
+#: "Randomization Knobs for Data Diversity"). ORFS accepts wider values; the
+#: model has no way to tell you a prediction outside these is extrapolation.
+TRAINED_DOMAIN = {
+    "CTS_CLUSTER_DIAMETER": (35.0, 70.0),
+    "CTS_CLUSTER_SIZE": (12.0, 30.0),
+    "CTS_BUF_DISTANCE": (70.0, 150.0),
+}
 
 #: SwiftCTS knob name -> ORFS make variable.
 KNOB_MAP = {
@@ -64,6 +75,7 @@ class SwiftCTSEvaluator(SurrogateEvaluator):
 
     observes_stage = "place"
     requires = ("def", "timing_rpt")
+    domain = TRAINED_DOMAIN
     # All three are checkable. Skew comes from ORFS's own metric JSON; clock
     # power and wirelength come from OpenROADNode.measure_clock, which reads
     # report_power's Clock group and report_wire_length over the clock nets.
@@ -86,6 +98,9 @@ class SwiftCTSEvaluator(SurrogateEvaluator):
                                      "CTS_BUF_DISTANCE": 100.0}
         self._model = None
         self._pid: str | None = None
+        #: K-shot state: how many reference runs were used to anchor this
+        #: placement. 0 means predictions are relative, not absolute.
+        self.k_shot = 0
 
     # -- loading ----------------------------------------------------------
     def _load(self):
@@ -132,6 +147,79 @@ class SwiftCTSEvaluator(SurrogateEvaluator):
         model.add_design(self._pid, state.artifacts["def"], saif,
                          state.artifacts["timing_rpt"], t_clk)
         logger.info("registered placement %s (t_clk=%.3f ns)", self._pid, t_clk)
+
+        if budget_runs <= 0 or run is None:
+            logger.warning(
+                "K=0: no reference run, so predictions carry the model's "
+                "absolute-scale offset for an unseen placement. The paper "
+                "reports power error falling from 24.5%% to 3.3%% and "
+                "wirelength from 56.6%% to under 1%% at K=1, and skew is only "
+                "available in ns at K>=1 -- below that it is a relative "
+                "z-score and is omitted entirely.")
+            return
+
+        self._k_shot_calibrate(state, run, budget_runs)
+
+    def _k_shot_calibrate(self, state, run, k: int) -> None:
+        """Anchor predictions to this placement with K real CTS runs.
+
+        The paper's mechanism: run K reference configurations, compare true to
+        predicted, and take the geometric mean of the ratios as a multiplicative
+        scale factor,
+
+            k_cal = exp( (1/K) * sum log(y_true / y_pred) )
+
+        applied to every later prediction. The core model weights are untouched
+        — only the per-placement offset is corrected, which is why one run is
+        usually enough.
+        """
+        from chia_openroad.openroad import run_flow
+
+        anchors = self._anchor_knobs(k)
+        truths, preds = [], []
+        for i, knobs in enumerate(anchors):
+            predicted = self.predict(state, [knobs])[0]
+            results = run_flow(run, f"{state.work_home}/kshot-{i}",
+                               state.design_config, knobs, gate=None, target="finish")
+            if not results[-1].success:
+                logger.warning("K-shot anchor %s failed to build; skipping", knobs)
+                continue
+            truths.append(results[-1])
+            preds.append(predicted)
+
+        if not truths:
+            logger.error("every K-shot anchor failed; predictions stay uncalibrated")
+            return
+
+        model = self._load()
+        # The adapter cannot compute clock power/wirelength itself; the caller
+        # supplies measured values via `state.metrics` on the anchor results.
+        for truth, pred in zip(truths, preds):
+            measured = getattr(truth, "clock_metrics", None) or {}
+            if "clock_power_w" in measured:
+                model.calibrate_power(self._pid, measured["clock_power_w"] * 1000.0,
+                                      pred.values["clock_power_w"] * 1000.0)
+            if "clock_wirelength_um" in measured:
+                model.calibrate_wl(self._pid, measured["clock_wirelength_um"] / 1000.0,
+                                   pred.values["clock_wirelength_um"] / 1000.0)
+        self.k_shot = len(truths)
+        logger.info("K-shot calibration complete with K=%d", self.k_shot)
+
+    def _anchor_knobs(self, k: int) -> list[dict]:
+        """Reference configurations for K-shot, spread across the fitted domain.
+
+        One anchor sits at the centre; more spread outward, so a K>1 budget
+        samples the domain rather than clustering.
+        """
+        centre = {name: (low + high) / 2 for name, (low, high) in TRAINED_DOMAIN.items()}
+        if k <= 1:
+            return [centre]
+        out = [centre]
+        for i in range(1, k):
+            frac = 0.25 + 0.5 * (i - 1) / max(k - 2, 1)
+            out.append({name: low + frac * (high - low)
+                        for name, (low, high) in TRAINED_DOMAIN.items()})
+        return out
 
     @staticmethod
     def _clock_period(state: DesignState) -> float:
