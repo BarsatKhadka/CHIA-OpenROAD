@@ -65,10 +65,17 @@ class ORFSAgentTool(ChiaTool):
     """MCP tools for an agent driving ORFS. See the module docstring for what
     is deliberately absent."""
 
-    def __init__(self, name: str, *, policy: KnobPolicy, store: CandidateStore,
-                 failures: FailureLog, design_config: str, work_root: str,
-                 arm: str = "agent", gate: str | None = DEFAULT_GATE_STAGE,
-                 orfs_home: str | None = None, task_options: dict | None = None):
+    # Defined as setup() with NO __init__ on purpose. ChiaTool.__init_subclass__
+    # only auto-brackets setup() with ChiaTool.__init__ (before) and
+    # __post_init__ (after) for a subclass that defines setup() and no
+    # __init__. Writing both means neither setup() nor __post_init__ runs: the
+    # MCP server never starts, `hostname` stays None, no tools are registered,
+    # and the LLM fails with an opaque "unhandled errors in a TaskGroup"
+    # because there is nothing to connect to.
+    def setup(self, *, policy: KnobPolicy, store: CandidateStore,
+              failures: FailureLog, design_config: str, work_root: str,
+              arm: str = "agent", gate: str | None = DEFAULT_GATE_STAGE,
+              orfs_home: str | None = None):
         self.policy = policy
         self.store = store
         self.failures = failures
@@ -78,9 +85,7 @@ class ORFSAgentTool(ChiaTool):
         self.gate = gate
         self.orfs_home = orfs_home
         self._pending: dict[int, object] = {}     # candidate id -> ObjectRef
-        super().__init__(name, task_options)
 
-    def setup(self):
         for fn in (self.list_legal_knobs, self.propose_candidate,
                    self.candidate_status, self.list_candidates,
                    self.compare_candidates, self.past_failures,

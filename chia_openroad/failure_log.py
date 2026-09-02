@@ -64,6 +64,14 @@ class FailureLog:
         self._by_knobs: dict[str, dict] = {}
         self._load()
 
+    # Same reasoning as CandidateStore.__getstate__: a threading.Lock cannot
+    # be pickled, and a ChiaTool is pickled to reach its Ray actor.
+    def __getstate__(self):
+        return {"path": self.path}
+
+    def __setstate__(self, state):
+        self.__init__(state["path"])
+
     def _load(self) -> None:
         if not os.path.exists(self.path):
             return

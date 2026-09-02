@@ -88,6 +88,17 @@ class CandidateStore:
         self._conn.executescript(SCHEMA)
         self._conn.commit()
 
+    # A ChiaTool is pickled to reach its Ray actor, and a sqlite3.Connection
+    # and a threading.Lock are both unpicklable. Carry the path and reopen on
+    # the far side. NOTE: this assumes the path is reachable there — true on a
+    # single machine, and something a multi-node cluster would need to solve
+    # with a shared filesystem or a database node.
+    def __getstate__(self):
+        return {"path": self.path}
+
+    def __setstate__(self, state):
+        self.__init__(state["path"])
+
     # -- writing ----------------------------------------------------------
     def propose(self, knobs: dict, *, arm: str = "agent", design: str = "",
                 platform: str = "") -> int:

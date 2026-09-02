@@ -54,10 +54,18 @@ check("gate is set at construction, not per call",
 print("\n=== policy gate is enforced before anything runs ===")
 pol = KnobPolicy()
 fl = FailureLog(os.path.join(tmp, "f.jsonl"))
+# Constructed without ChiaTool.__init__ so the test needs no Ray/MCP server;
+# setup() is called directly, which is exactly what the base class does.
 tool = orfs_tools.ORFSAgentTool.__new__(orfs_tools.ORFSAgentTool)
-tool.policy, tool.store, tool.failures = pol, CandidateStore(os.path.join(tmp, "c2.db")), fl
-tool.design_config, tool.work_root, tool.arm, tool.gate = "cfg.mk", tmp, "agent", "cts"
-tool.orfs_home, tool._pending = None, {}
+tool.name = "orfs"
+class _FakeMCP:
+    def __init__(self): self.added = []
+    def add_tool(self, fn, name=None): self.added.append(name)
+tool.mcp = _FakeMCP()
+tool.setup(policy=pol, store=CandidateStore(os.path.join(tmp, "c2.db")), failures=fl,
+           design_config="cfg.mk", work_root=tmp, arm="agent", gate="cts")
+check("setup registers every tool with the MCP server", len(tool.mcp.added) == 7,
+      f"{len(tool.mcp.added)} registered")
 out = tool.propose_candidate({"CORE_UTILIZATION": 999})
 check("illegal value rejected without running", "REJECTED" in out, out[:70])
 out = tool.propose_candidate({"SYNTH_HIERARCHICAL": 1})
