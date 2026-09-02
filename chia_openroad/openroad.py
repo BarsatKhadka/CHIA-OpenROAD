@@ -405,8 +405,16 @@ def _coerce(name: str, value) -> str:
         except (TypeError, ValueError):
             raise ValueError(
                 f"knob {name} is declared {declared} by ORFS, got {value!r}")
-        if declared == "int" and number != int(number):
-            raise ValueError(f"knob {name} is declared int by ORFS, got {value!r}")
+        if declared == "int":
+            if number != int(number):
+                raise ValueError(f"knob {name} is declared int by ORFS, got {value!r}")
+            # Emit "25", never "25.0". A whole-valued float passes the check
+            # above but its str() carries a decimal point, and OpenROAD's Tcl
+            # bindings reject that outright:
+            #   TypeError in method 'set_sink_clustering_size',
+            #   argument 1 of type 'unsigned int'
+            # Found by calibration, whose bisection midpoints are floats.
+            return str(int(number))
     return str(value)
 
 

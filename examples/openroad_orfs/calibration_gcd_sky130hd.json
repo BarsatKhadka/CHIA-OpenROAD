@@ -1,0 +1,56 @@
+{
+ "CORE_UTILIZATION": {
+  "low": 21.25,
+  "high": 43.75,
+  "nominal": [
+   20,
+   60
+  ],
+  "probes": 9,
+  "failures": [
+   [
+    50.0,
+    "CORE_UTILIZATION=50.0 -> failed at 4_1_cts [DPL-0038]: Utilization greater than 100%, impossible to legalize"
+   ],
+   [
+    45.0,
+    "CORE_UTILIZATION=45.0 -> failed at 4_1_cts [DPL-0038]: Utilization greater than 100%, impossible to legalize"
+   ]
+  ]
+ },
+ "PLACE_DENSITY": {
+  "low": 0.2703,
+  "high": 0.8797,
+  "nominal": [
+   0.25,
+   0.9
+  ],
+  "probes": 9,
+  "failures": []
+ },
+ "CTS_CLUSTER_SIZE": {
+  "low": 10,
+  "high": 39,
+  "nominal": [
+   10,
+   40
+  ],
+  "probes": 7,
+  "failures": [
+   [
+    25.0,
+    "CTS_CLUSTER_SIZE=25.0 -> failed at 4_1_cts: cts.tcl: TypeError in method 'set_sink_clustering_size', argument 1 of type 'unsigned int'"
+   ]
+  ]
+ },
+ "CTS_BUF_DISTANCE": {
+  "low": 35.3125,
+  "high": 194.6875,
+  "nominal": [
+   30,
+   200
+  ],
+  "probes": 9,
+  "failures": []
+ }
+}

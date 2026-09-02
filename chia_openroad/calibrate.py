@@ -14,6 +14,14 @@ rather than anything about surrogates.
 
 So: probe once per design, before the agent runs, and hand it measured bounds.
 
+**The band is measured only as far as the gate.** Probes stop at ``cts`` by
+default, because routing is ~75% of the flow. So a value that survives to cts
+is called buildable even if routing would later fail — and that happens: gcd
+fails at global route at CORE_UTILIZATION=42, while gate-limited calibration
+reports the band as reaching 43.75. Calibrating to ``finish`` gives a truer
+bound at roughly four times the cost. Whichever is chosen, the band is an upper
+estimate of what builds, not a guarantee.
+
 **What this does not capture.** Each knob is calibrated in isolation, with the
 others at their defaults. Interactions are real — PLACE_DENSITY must exceed
 CORE_UTILIZATION or placement cannot legalize — so a combination drawn from
