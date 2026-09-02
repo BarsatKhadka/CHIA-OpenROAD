@@ -34,11 +34,32 @@ def grid(n_per_knob=8):
 
 
 def spread(candidates, k):
-    """k configurations spaced through the list, rather than k adjacent ones."""
+    """k configurations that differ on every knob, not just the slowest axis.
+
+    Evenly-spaced indices into an itertools.product ordering look diverse and
+    are not: on an 8x8x8 grid a stride of 128 holds two of the three knobs at
+    their minimum, so four "spread" candidates varied only cluster diameter.
+    Greedy max-min instead: repeatedly take the candidate furthest (in
+    normalised knob space) from everything already chosen.
+    """
     if k >= len(candidates):
         return candidates
-    step = len(candidates) / k
-    return [candidates[int(i * step)] for i in range(k)]
+    keys = sorted({key for c in candidates for key in c})
+    lo = {key: min(float(c[key]) for c in candidates) for key in keys}
+    hi = {key: max(float(c[key]) for c in candidates) for key in keys}
+
+    def dist(a, b):
+        total = 0.0
+        for key in keys:
+            span = (hi[key] - lo[key]) or 1.0
+            total += ((float(a[key]) - float(b[key])) / span) ** 2
+        return total ** 0.5
+
+    chosen = [candidates[0]]                      # a corner, to anchor the set
+    while len(chosen) < k:
+        nxt = max(candidates, key=lambda c: min(dist(c, p) for p in chosen))
+        chosen.append(nxt)
+    return chosen
 
 
 def main():
