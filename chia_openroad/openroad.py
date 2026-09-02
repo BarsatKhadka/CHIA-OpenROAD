@@ -859,6 +859,7 @@ class OpenROADNode(ColocatedNode):
         extra_make_args: list[str] | None = None,
         force_rebuild: bool = False,
         allow_unknown_knobs: bool = False,
+        num_cores: int | None = None,
         timeout_seconds: int = 86400,
     ) -> OrfsStageResult:
         """Run ``make <stage>`` for one design/knob combination on a worker.
@@ -885,6 +886,13 @@ class OpenROADNode(ColocatedNode):
             extra_make_args: Appended verbatim, for flags a knob can't express.
             force_rebuild: Discard every artifact and rerun the whole flow,
                 regardless of what the knob manifest says.
+            num_cores: ``NUM_CORES``, which ORFS passes to
+                ``openroad -threads``. Defaults to the worker's CPU count.
+                Setting it explicitly matters: Ray constrains thread counts on
+                its workers, and the inherited environment left OpenROAD
+                single-threaded, which on a design like aes is the difference
+                between minutes and tens of minutes of routing. It changes wall
+                clock only, not results.
             allow_unknown_knobs: Accept knob names absent from the generated
                 ORFS variable table — for a newer ORFS than the table was built
                 from. Off by default, because an unknown knob is usually a typo
@@ -937,6 +945,7 @@ class OpenROADNode(ColocatedNode):
             f"DESIGN_CONFIG={design_config}",
             f"FLOW_VARIANT={variant}",
             f"LEC_CHECK={1 if lec_check else 0}",
+            f"NUM_CORES={num_cores or os.cpu_count() or 1}",
         ]
         cmd += [f"{k}={v}" for k, v in clean_knobs.items()]
         cmd += extra_make_args or []
