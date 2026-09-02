@@ -421,6 +421,40 @@ def _timing_csv_agrees(csv_path: str, stage: str, dirs: dict[str, str]) -> bool:
     return True
 
 
+def _orfs_liberty(dirs: dict[str, str], flow_dir: str, platform: str) -> list[str]:
+    """The liberty files ORFS itself read, in the order it read them.
+
+    Globbing the platform lib directory is not equivalent. sky130hd ships two
+    liberty files and ORFS reads only one; the other, `sky130_dummy_io.lib`,
+    sorts first alphabetically. Reading it changed both the reported power
+    units and the power numbers themselves -- the same routed design gave a
+    clock share of 10.4% one way and 34.0% the other.
+
+    So take what ORFS actually did, from its own logs, and fall back to a glob
+    only when there is nothing to read.
+    """
+    seen: list[str] = []
+    for log in sorted(_glob.glob(os.path.join(dirs["logs"], "*.log")), reverse=True):
+        try:
+            with open(log, errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        found = re.findall(r"read_liberty\s+(\S+\.lib)", text)
+        if found:
+            for path in found:
+                if path not in seen and os.path.exists(path):
+                    seen.append(path)
+            if seen:
+                return seen
+    fallback = sorted(_glob.glob(os.path.join(flow_dir, "platforms", platform,
+                                              "lib", "*.lib")))
+    logger.warning("no read_liberty found in %s logs; falling back to a glob of "
+                   "%d file(s), which may not match ORFS's own setup",
+                   platform, len(fallback))
+    return fallback
+
+
 def _summarize(metrics: dict, stage_metrics: dict[str, dict]) -> dict[str, float]:
     """SUMMARY_KEYS resolved against the final report, then any stage JSON.
 
@@ -657,6 +691,37 @@ ARTIFACT_FILES = {
     "final_def": ("results", "6_final.def"),
 }
 
+#: Clock-specific figures ORFS does not put in its metric JSONs, but OpenROAD
+#: can report. Extracted by OpenROADNode.measure_clock.
+#:
+#: These exist because a clock-tree surrogate predicts clock power and clock
+#: wirelength, and `6_report.json` carries only *total* power and no wirelength
+#: breakdown at all. Without them two thirds of such a model's output could
+#: never be checked against reality.
+CLOCK_METRIC_TCL = """
+# Pin the units. OpenSTA takes them from the first liberty read, and the
+# liberty glob order is not stable -- the same design reported clock power as
+# 8.56e-04 in one run and 8.56e-01 in another, both with the column labelled
+# "Watts". Setting them explicitly makes the number mean what it says.
+set_cmd_units -power W -time ns -capacitance pF -voltage V -current mA -resistance kOhm -distance um
+set block [[[ord::get_db] getChip] getBlock]
+set clknets {}
+foreach net [$block getNets] {
+  if { [$net getSigType] == "CLOCK" } { lappend clknets [$net getName] }
+}
+puts "CHIA_CLOCK_NETS [llength $clknets]"
+if { [llength $clknets] } { report_wire_length -net $clknets $MODE -verbose }
+report_power
+"""
+
+#: "Net <name> detailed route wire length: 95.01um"
+_WL_RE = re.compile(r"wire length:\s*([0-9.]+)\s*um")
+#: The Clock and Total rows of report_power. The 4th column is that row's total.
+_CLOCK_POWER_RE = re.compile(
+    r"^Clock\s+[\d.e+-]+\s+[\d.e+-]+\s+[\d.e+-]+\s+([\d.e+-]+)", re.M)
+_TOTAL_POWER_RE = re.compile(
+    r"^Total\s+[\d.e+-]+\s+[\d.e+-]+\s+[\d.e+-]+\s+([\d.e+-]+)", re.M)
+
 #: Where to check feasibility before committing to the expensive part of the
 #: flow. Measured on gcd/sky130hd (91 s of tool time): everything through cts
 #: is 11 s (12%), global+detailed routing is 68 s (75%), finishing is 9 s.
@@ -749,8 +814,8 @@ class OpenROADNode(ColocatedNode):
     test it against, rather than shipped untested.
     """
 
-    _MEMBER_FNS = ("run_stage", "emit_artifacts", "read_metrics", "collect",
-                   "list_matches")
+    _MEMBER_FNS = ("run_stage", "emit_artifacts", "measure_clock", "read_metrics",
+                   "collect", "list_matches")
     _DEFAULT_BUNDLE = {"CPU": 1, "orfs": 1}
 
     @staticmethod
@@ -973,11 +1038,7 @@ class OpenROADNode(ColocatedNode):
             # read_db alone restores geometry but no timing view: STA needs
             # liberty and the stage SDC, or find_timing_paths returns nothing
             # and the slack CSV comes out as a bare header.
-            libs = sorted(_glob.glob(os.path.join(
-                flow_dir, "platforms", platform, "lib", "*.lib")))
-            if not libs:
-                logger.warning("no liberty found for %s; timing artifacts will be empty",
-                               platform)
+            libs = _orfs_liberty(dirs, flow_dir, platform)
             sdc = os.path.join(dirs["results"], f"{STAGE_CHECKPOINT[stage][1][:-4]}.sdc")
             script = [f"read_liberty {lib}" for lib in libs]
             script.append(f"read_db {stage_odb}")
@@ -1017,6 +1078,100 @@ class OpenROADNode(ColocatedNode):
                         "hand-rolled read_liberty/read_db/read_sdc.", dest)
                     continue
                 out[name] = dest
+        return out
+
+    @staticmethod
+    @ChiaFunction(resources={"orfs": 1})
+    def measure_clock(
+        work_home: str,
+        design_config: str,
+        *,
+        stage: str = "route",
+        orfs_home: str = DEFAULT_ORFS_HOME,
+        variant: str = "base",
+        timeout_seconds: int = 3600,
+    ) -> dict[str, float]:
+        """Clock power and clock wirelength, which ORFS's JSONs do not carry.
+
+        ``report_power`` breaks power down by group and one of those groups is
+        Clock; ``report_wire_length -net <clock nets>`` gives per-net routed
+        length. Together they are the ground truth a clock-tree surrogate needs
+        to be scored against.
+
+        Returns ``{}`` rather than partial numbers if extraction fails — an
+        absent metric is skipped by the scorecard, a wrong one is not.
+
+        Args:
+            stage: which checkpoint to measure. Wirelength needs a routed
+                database, so ``route`` or later; earlier stages report 0.
+        """
+        flow_dir = os.path.join(orfs_home, "flow")
+        work_home = os.path.abspath(work_home)
+        config_path = (design_config if os.path.isabs(design_config)
+                       else os.path.normpath(os.path.join(flow_dir, design_config)))
+        platform, design = _parse_design_config(config_path)
+        dirs = _dirs(work_home, platform, design, variant)
+        odb = os.path.join(dirs["results"], STAGE_CHECKPOINT[stage][1])
+        if not os.path.exists(odb):
+            logger.error("cannot measure clock: no %s", odb)
+            return {}
+
+        libs = _orfs_liberty(dirs, flow_dir, platform)
+        sdc = os.path.join(dirs["results"], f"{STAGE_CHECKPOINT[stage][1][:-4]}.sdc")
+        mode = "-detailed_route" if STAGE_PREFIX[stage] >= 5 else "-global_route"
+        script = [f"read_liberty {lib}" for lib in libs]
+        script.append(f"read_db {odb}")
+        if os.path.exists(sdc):
+            script.append(f"read_sdc {sdc}")
+        script.append(CLOCK_METRIC_TCL.replace("$MODE", mode))
+
+        with tempfile.NamedTemporaryFile("w", suffix=".tcl", delete=False) as f:
+            f.write("\n".join(script) + "\nexit\n")
+            tcl_path = f.name
+        try:
+            proc = subprocess.run(["openroad", "-no_init", "-exit", tcl_path],
+                                  cwd=flow_dir, env=dict(_orfs_env(orfs_home)),
+                                  text=True, capture_output=True,
+                                  timeout=timeout_seconds)
+        finally:
+            os.unlink(tcl_path)
+        text = (proc.stdout or "") + (proc.stderr or "")
+
+        out: dict[str, float] = {}
+        wl = [float(m) for m in _WL_RE.findall(text)]
+        if wl:
+            out["clock_wirelength_um"] = round(sum(wl), 4)
+        nets = re.search(r"CHIA_CLOCK_NETS (\d+)", text)
+        if nets:
+            out["clock_net_count"] = float(nets.group(1))
+        # Take the clock's SHARE of power from report_power and scale it by the
+        # total ORFS already reports in watts. The units then cancel, which
+        # matters: report_power's scaling follows the first liberty read, and
+        # the glob order is not stable -- the same design gave 8.56e-04 in one
+        # run and 8.56e-01 in another, both columns labelled "Watts".
+        clock_row = _CLOCK_POWER_RE.search(text)
+        total_row = _TOTAL_POWER_RE.search(text)
+        orfs_total = None
+        try:
+            with open(os.path.join(dirs["logs"], "6_report.json")) as f:
+                orfs_total = json.load(f).get("finish__power__total")
+        except (OSError, json.JSONDecodeError):
+            pass
+        if clock_row and total_row:
+            reported_clock = float(clock_row.group(1))
+            reported_total = float(total_row.group(1))
+            if reported_total > 0:
+                share = reported_clock / reported_total
+                out["clock_power_frac"] = round(share, 6)
+                if isinstance(orfs_total, (int, float)):
+                    out["clock_power_w"] = round(share * orfs_total, 12)
+                else:
+                    logger.warning("no ORFS total power to scale the clock share by; "
+                                   "reporting the fraction only")
+
+        if not out:
+            logger.error("clock measurement produced nothing (rc=%s): %s",
+                         proc.returncode, text[-400:])
         return out
 
     @staticmethod

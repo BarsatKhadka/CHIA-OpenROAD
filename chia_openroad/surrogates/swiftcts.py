@@ -15,15 +15,13 @@ from a DEF, a timing report and (optionally) a SAIF.
 Three things had to be resolved to put it behind the interface, and two of them
 are honest limitations rather than solved problems.
 
-**1. Only one of its three outputs has ORFS ground truth.**
-ORFS's ``6_report.json`` reports ``finish__clock__skew__setup`` — which maps
-straight onto SwiftCTS's ``skew_ns`` — but it reports *total* power, not clock
-power, and no clock wirelength at all. So skew is declared ``orfs_metric`` and
-gets validated against reality by the scorecard; clock power and wirelength are
-declared ``score``, meaning they rank candidates but are never claimed to be
-checked. Making them validatable needs a POST-CTS Tcl hook
-(``source_step_tcl POST CTS``) that reports clock-net power and wirelength.
-Until that exists, saying otherwise would be inventing an accuracy number.
+**1. All three outputs are checkable, but two needed extracting.**
+ORFS's ``6_report.json`` carries ``finish__clock__skew__setup`` but only
+*total* power and no wirelength breakdown.
+:meth:`OpenROADNode.measure_clock` supplies the rest: ``report_power`` groups
+power and one group is Clock, and ``report_wire_length -net <clock nets>``
+gives routed clock length. So all three predictions are scored against reality,
+in ORFS-side units.
 
 **2. SwiftCTS's ``mw`` knob has no ORFS equivalent.**
 ``CTS_CLK_MAX_WIRE_LENGTH`` was removed from OpenROAD — the lever is
@@ -66,13 +64,14 @@ class SwiftCTSEvaluator(SurrogateEvaluator):
 
     observes_stage = "place"
     requires = ("def", "timing_rpt")
+    # All three are checkable. Skew comes from ORFS's own metric JSON; clock
+    # power and wirelength come from OpenROADNode.measure_clock, which reads
+    # report_power's Clock group and report_wire_length over the clock nets.
+    # Names and units are ORFS-side, so the scorecard needs no adapter.
     predicts = {
-        # The one SwiftCTS output ORFS also measures, so the only one the
-        # scorecard can check. Same name as ORFS uses.
-        "clock_skew_setup": "orfs_metric",
-        # ORFS reports neither of these. Useful for ranking, not validatable.
-        "clock_power_mw": "score",
-        "clock_wirelength_mm": "score",
+        "clock_skew_setup": "orfs_metric",      # ns
+        "clock_power_w": "orfs_metric",         # W
+        "clock_wirelength_um": "orfs_metric",   # um
     }
 
     def __init__(self, model_path: str | None = None, swiftcts_dir: str | None = None,
@@ -161,8 +160,11 @@ class SwiftCTSEvaluator(SurrogateEvaluator):
             for short, orfs_name in KNOB_MAP.items():
                 args[short] = float(knobs.get(orfs_name, self.defaults[orfs_name]))
             pred = model.predict(self._pid, mw=FIXED_MAX_WIRE, **args)
-            values = {"clock_power_mw": float(pred.power_mW),
-                      "clock_wirelength_mm": float(pred.wl_mm)}
+            # SwiftCTS works in mW and mm; ground truth is in W and um. Convert
+            # here rather than in the scorecard, so the comparison is like for
+            # like and the interface never has to know about a model's units.
+            values = {"clock_power_w": float(pred.power_mW) / 1000.0,
+                      "clock_wirelength_um": float(pred.wl_mm) * 1000.0}
             # skew_ns is None when the model can only give a z-score; omitting
             # the key beats reporting a number in the wrong units, and the
             # conformance rule about stable keys will catch it if it varies.

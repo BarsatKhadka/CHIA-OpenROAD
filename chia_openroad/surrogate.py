@@ -66,8 +66,18 @@ ORFS_METRICS: dict[str, str] = {
     "clock_skew_setup": "lower",      # ns
     "clock_buffer_area": "lower",     # um^2
     "clock_buffer_count": "lower",
+    # Not in ORFS's metric JSONs -- extracted by OpenROADNode.measure_clock from
+    # report_power's Clock group and report_wire_length over the clock nets.
+    # They exist because a clock-tree surrogate predicts exactly these, and
+    # without them two thirds of such a model could never be checked.
+    "clock_power_w": "lower",
+    "clock_wirelength_um": "lower",
 }
-assert set(ORFS_METRICS) <= set(SUMMARY_KEYS), "ORFS_METRICS drifted from SUMMARY_KEYS"
+
+#: Of the above, the ones that come from measure_clock rather than the JSONs.
+MEASURED_CLOCK_METRICS = frozenset({"clock_power_w", "clock_wirelength_um"})
+assert set(ORFS_METRICS) - MEASURED_CLOCK_METRICS <= set(SUMMARY_KEYS), \
+    "ORFS_METRICS drifted from SUMMARY_KEYS"
 
 #: Kinds a prediction may carry.
 #:   orfs_metric -- something ORFS measures; validated against ground truth

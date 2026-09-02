@@ -109,6 +109,56 @@ covered by `CTS_BUF_DISTANCE` (`orfs_knob_map.md`). It is held constant.
 This is what `requires = ("def", ...)` drives — the loop reads a surrogate's
 declaration and produces what it asked for.
 
+**Clock power and clock wirelength.** ORFS's JSONs carry only *total* power and
+no wirelength breakdown, so two of SwiftCTS's three outputs looked unscoreable.
+OpenROAD reports both:
+
+- `report_power` groups power, and one group is **Clock**
+- `report_wire_length -net <clock nets> -detailed_route` gives routed clock length
+
+`OpenROADNode.measure_clock` extracts them. All three SwiftCTS predictions are
+now `orfs_metric` and get checked against reality.
+
+**The slack CSV.** Now agrees with ORFS's reported worst slack to 11% — the
+residual is that our 85-path sample does not contain the single worst path ORFS
+finds. `emit_artifacts` still cross-checks and withholds the file if they
+diverge.
+
+## The bug behind all three
+
+All of the above were broken by one thing, and it is worth recording because it
+would recur on any new platform.
+
+sky130hd ships **two** liberty files, and ORFS reads only one:
+
+```
+sky130_dummy_io.lib                  <- sorts first alphabetically
+sky130_fd_sc_hd__tt_025C_1v80.lib    <- the only one ORFS reads
+```
+
+Globbing the lib directory and reading everything produced a *plausible* STA
+session that measured something else. Symptoms, all from this one cause:
+
+| | glob (wrong) | ORFS's own liberty |
+|---|---|---|
+| worst path slack | -2243.9 ns | -1.36 ns (ORFS: -1.54) |
+| clock power share | 34.0% | 10.5% (report_power: 10.4%) |
+| power units | varied between runs, both labelled "Watts" | consistent |
+
+The units point deserves emphasis: the same design reported clock power as
+`8.56e-04` in one run and `8.56e-01` in another, with the column labelled
+"Watts" both times, purely because Tcl's `glob` and Python's `sorted(glob)`
+returned the two liberty files in different orders.
+
+`_orfs_liberty()` now recovers the liberty files from ORFS's own logs
+(`read_liberty <path>` lines) so the extraction session matches what the flow
+actually did, on any platform. Two guards remain in place regardless: the slack
+CSV is cross-checked against the stage's reported worst slack, and clock power
+is taken as a *share* of `report_power`'s total and scaled by the watts ORFS
+reports, so units cancel.
+
+## Still open
+
 ## Not solved
 
 **ORFS reports no clock power and no clock wirelength.** `6_report.json`
