@@ -92,6 +92,10 @@ class DesignState:
     design: str
     platform: str
     work_home: str = ""
+    #: The ORFS config this state came from. Needed by a surrogate that spends
+    #: its own reference runs (SwiftCTS's K-shot calibration), so it can run
+    #: the same design through the loop's `run` callable.
+    design_config: str = ""
     stage: str | None = None                 # checkpoint this state came from
     artifacts: dict[str, str] = field(default_factory=dict)   # name -> path
     metrics: dict = field(default_factory=dict)               # parsed ORFS JSON
@@ -284,6 +288,20 @@ def conformance_check(surrogate: SurrogateEvaluator, state: DesignState | None =
     try:
         preds = surrogate.predict(state, candidates)
         elapsed = time.monotonic() - started
+    except RuntimeError as exc:
+        if "calibrate" in str(exc).lower():
+            # Not a defect: a model that must see a placement before predicting
+            # cannot be exercised against a dummy state. Check it again with a
+            # calibrated instance and a real DesignState.
+            report(False, "predict() needs calibrate() first — pass a calibrated "
+                   "instance and a real state to check it fully", str(exc)[:70], warn=True)
+            if verbose:
+                print("\n  CONFORMANT so far (prediction not exercised)")
+            return not problems
+        report(False, "predict() runs", f"{type(exc).__name__}: {exc}")
+        if verbose:
+            print(f"\n  {len(problems)} problem(s): {', '.join(problems)}")
+        return False
     except Exception as exc:
         report(False, "predict() runs", f"{type(exc).__name__}: {exc}")
         if verbose:

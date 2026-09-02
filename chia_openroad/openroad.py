@@ -421,6 +421,29 @@ def _timing_csv_agrees(csv_path: str, stage: str, dirs: dict[str, str]) -> bool:
     return True
 
 
+def _timing_setup(flow_dir: str, platform: str, stage: str) -> list[str]:
+    """Bring a hand-built STA session up to what ORFS's own scripts assume.
+
+    Reading liberty, the ODB and the SDC gives a session that *runs* and
+    reports plausible numbers that are wrong. ORFS's stage scripts additionally
+    source the platform RC values, estimate parasitics, and propagate clocks
+    (see detail_place.tcl and cts.tcl). Without parasitics the nets carry no RC,
+    so wire delay is zero and every path looks fast: on aes the extracted worst
+    slack came out **+0.51 ns against ORFS's -0.88 ns** — the wrong sign, not
+    merely the wrong magnitude.
+    """
+    setup = []
+    setrc = os.path.join(flow_dir, "platforms", platform, "setRC.tcl")
+    if os.path.exists(setrc):
+        setup.append(f"source {setrc}")
+    # Pre-route there is no routing to extract from, so parasitics are
+    # estimated from placement; once routed, from the global route.
+    setup.append("estimate_parasitics -placement" if STAGE_PREFIX[stage] < 5
+                 else "estimate_parasitics -global_routing")
+    setup.append("set_propagated_clock [all_clocks]")
+    return setup
+
+
 def _orfs_liberty(dirs: dict[str, str], flow_dir: str, platform: str) -> list[str]:
     """The liberty files ORFS itself read, in the order it read them.
 
@@ -673,7 +696,11 @@ ARTIFACT_TCL = {
     "timing_rpt": """
 set f [open $OUT w]
 puts $f "slack"
-foreach path [find_timing_paths -path_delay max -group_count 5000] {
+# -sort_by_slack matters: without it find_timing_paths returns paths per group
+# in an arbitrary order, and a truncated set can miss the critical path
+# entirely -- on aes the extracted "worst" came out +0.51 ns against ORFS's
+# -0.88 ns, i.e. not even the right sign.
+foreach path [find_timing_paths -path_delay max -group_count 5000 -sort_by_slack] {
   # get_property returns slack already in the display unit (ns). Passing it
   # through sta::format_time multiplies by 1e9 a second time and yields
   # values around -1e15 -- verified against a known -1.4 ns worst slack.
@@ -1046,6 +1073,7 @@ class OpenROADNode(ColocatedNode):
                 script.append(f"read_sdc {sdc}")
             else:
                 logger.warning("no SDC at %s; timing paths will have no clock", sdc)
+            script += _timing_setup(flow_dir, platform, stage)
             targets = {}
             for name in generate:
                 dest = os.path.join(dirs["results"], f"{stage}_{name}."
@@ -1123,6 +1151,7 @@ class OpenROADNode(ColocatedNode):
         script.append(f"read_db {odb}")
         if os.path.exists(sdc):
             script.append(f"read_sdc {sdc}")
+        script += _timing_setup(flow_dir, platform, stage)
         script.append(CLOCK_METRIC_TCL.replace("$MODE", mode))
 
         with tempfile.NamedTemporaryFile("w", suffix=".tcl", delete=False) as f:

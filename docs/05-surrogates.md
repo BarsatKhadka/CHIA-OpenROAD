@@ -240,3 +240,46 @@ budget.
 **4. Max Wire Length is held at 200 um**, the middle of its fitted range, rather
 than an arbitrary constant — `CTS_CLK_MAX_WIRE_LENGTH` has no ORFS equivalent,
 so the model must see *some* value and it should be an in-domain one.
+
+---
+
+# Building a trustworthy STA session by hand
+
+Three separate bugs stood between "the extraction runs" and "the extraction is
+correct". All three produced plausible output, and none announced itself.
+
+**1. The wrong liberty.** sky130hd ships two `.lib` files; ORFS reads one.
+Globbing read both, and which came first changed the reported power *units*
+between runs (`8.56e-04` vs `8.56e-01`, both labelled "Watts").
+`_orfs_liberty()` now recovers the set from ORFS's own `read_liberty` log lines.
+
+**2. Unsorted path search.** `find_timing_paths -group_count N` returns paths
+per group in arbitrary order, so a truncated set can miss the critical path.
+`-sort_by_slack` is not optional.
+
+**3. No parasitics — the worst of the three.** A session with liberty, ODB and
+SDC runs fine and reports confident numbers. But ORFS's own stage scripts also
+source the platform RC file, estimate parasitics, and propagate clocks
+(`detail_place.tcl`, `cts.tcl`). Without parasitics the nets carry no RC, wire
+delay is zero, and every path looks fast. On aes the extracted worst slack came
+out **+0.51 ns against ORFS's -0.88 ns** — the wrong *sign*.
+
+`_timing_setup()` now adds all three:
+
+```tcl
+source <platform>/setRC.tcl
+estimate_parasitics -placement      # or -global_routing once routed
+set_propagated_clock [all_clocks]
+```
+
+The lesson worth keeping: reproducing an EDA tool's measurement means
+reproducing its whole setup, not just loading the same database. The guard
+that catches this — cross-checking extracted slack against the stage's own
+reported worst slack — earned its place three times over.
+
+## Artifacts must cross the worker boundary
+
+`emit_artifacts` runs in the worker container; a driver-side surrogate cannot
+read a path that exists only there. The loop fetches them to the head with
+`collect` before building `DesignState`. On aes that is a 4.9 MB DEF, which is
+why `collect`'s default 4 MB cap has to be raised deliberately for this.
