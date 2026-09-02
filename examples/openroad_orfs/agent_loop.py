@@ -67,9 +67,18 @@ def main() -> int:
     store = CandidateStore(os.path.join(HERE, f"candidates_{args.design}.db"))
     failures = FailureLog(os.path.join(HERE, f"failures_{args.design}.jsonl"))
 
+    # Pin the tool actor to the head. It owns driver-side state — the SQLite
+    # ledger and the failure log — which live on the head's filesystem. Left to
+    # schedule freely it lands inside a worker container, where those paths do
+    # not exist ("unable to open database file"). Only run_stage belongs on a
+    # worker. timing_opt pins its tool actor to the head for the same reason.
+    from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
+    head_node_id = ray.get_runtime_context().get_node_id()
     tool = ORFSAgentTool(
         "orfs", policy=policy, store=store, failures=failures,
-        design_config=design_config, work_root=args.work_root, arm="agent+gemini")
+        design_config=design_config, work_root=args.work_root, arm="agent+gemini",
+        task_options={"scheduling_strategy":
+                      NodeAffinitySchedulingStrategy(head_node_id, soft=False)})
 
     system = ("You are an expert physical-design engineer tuning an ASIC block. "
               "You may only act through the provided tools. Never claim a result "
