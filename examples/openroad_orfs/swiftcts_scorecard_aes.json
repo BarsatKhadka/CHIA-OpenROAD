@@ -1,0 +1,115 @@
+{
+ "k_shot": 1,
+ "grid": 512,
+ "predict_s": 1.6988244410003972,
+ "rows": [
+  {
+   "knobs": {
+    "CTS_CLUSTER_DIAMETER": 35.0,
+    "CTS_CLUSTER_SIZE": 12,
+    "CTS_BUF_DISTANCE": 70.0
+   },
+   "pred": {
+    "clock_power_w": 0.010715894923999224,
+    "clock_wirelength_um": 11253.631916586639
+   },
+   "actual": {
+    "worst_slack": -0.101958,
+    "tns": -0.687663,
+    "hold_worst_slack": 0.490329,
+    "power_total": 0.573636,
+    "instance_area": 129644,
+    "die_area": 225806,
+    "utilization": 0.588874,
+    "clock_skew_setup": 0.0824134,
+    "clock_buffer_area": 4389.21,
+    "clock_buffer_count": 184,
+    "clock_wirelength_um": 12012.52,
+    "clock_net_count": 171.0,
+    "clock_power_frac": 0.026599,
+    "clock_power_w": 0.015258331313
+   }
+  },
+  {
+   "knobs": {
+    "CTS_CLUSTER_DIAMETER": 45.0,
+    "CTS_CLUSTER_SIZE": 12,
+    "CTS_BUF_DISTANCE": 70.0
+   },
+   "pred": {
+    "clock_power_w": 0.010715894923999224,
+    "clock_wirelength_um": 11215.189425765011
+   },
+   "actual": {
+    "worst_slack": -0.131741,
+    "tns": -0.284502,
+    "hold_worst_slack": 0.491742,
+    "power_total": 0.568673,
+    "instance_area": 128134,
+    "die_area": 225806,
+    "utilization": 0.582015,
+    "clock_skew_setup": 0.0510635,
+    "clock_buffer_area": 3288.15,
+    "clock_buffer_count": 140,
+    "clock_wirelength_um": 10968.76,
+    "clock_net_count": 125.0,
+    "clock_power_frac": 0.020713,
+    "clock_power_w": 0.011778965365
+   }
+  },
+  {
+   "knobs": {
+    "CTS_CLUSTER_DIAMETER": 55.0,
+    "CTS_CLUSTER_SIZE": 12,
+    "CTS_BUF_DISTANCE": 70.0
+   },
+   "pred": {
+    "clock_power_w": 0.010715894923999224,
+    "clock_wirelength_um": 11155.179644309945
+   },
+   "actual": {
+    "worst_slack": -0.0841203,
+    "tns": -0.503161,
+    "hold_worst_slack": 0.492622,
+    "power_total": 0.567337,
+    "instance_area": 127355,
+    "die_area": 225806,
+    "utilization": 0.578474,
+    "clock_skew_setup": 0.0648838,
+    "clock_buffer_area": 2760.15,
+    "clock_buffer_count": 124,
+    "clock_wirelength_um": 11081.56,
+    "clock_net_count": 105.0,
+    "clock_power_frac": 0.018027,
+    "clock_power_w": 0.010227503741
+   }
+  },
+  {
+   "knobs": {
+    "CTS_CLUSTER_DIAMETER": 65.0,
+    "CTS_CLUSTER_SIZE": 12,
+    "CTS_BUF_DISTANCE": 70.0
+   },
+   "pred": {
+    "clock_power_w": 0.010715894923999224,
+    "clock_wirelength_um": 11058.645523408866
+   },
+   "actual": {
+    "worst_slack": -0.042983,
+    "tns": -0.21803,
+    "hold_worst_slack": 0.490757,
+    "power_total": 0.563315,
+    "instance_area": 126235,
+    "die_area": 225806,
+    "utilization": 0.573388,
+    "clock_skew_setup": 0.0634107,
+    "clock_buffer_area": 2438.59,
+    "clock_buffer_count": 112,
+    "clock_wirelength_um": 10980.09,
+    "clock_net_count": 94.0,
+    "clock_power_frac": 0.016518,
+    "clock_power_w": 0.009304842967
+   }
+  }
+ ]
+}

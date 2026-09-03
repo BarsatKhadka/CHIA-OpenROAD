@@ -283,3 +283,70 @@ reported worst slack — earned its place three times over.
 read a path that exists only there. The loop fetches them to the head with
 `collect` before building `DesignState`. On aes that is a 4.9 MB DEF, which is
 why `collect`'s default 4 MB cap has to be raised deliberately for this.
+
+---
+
+# First real result: SwiftCTS on aes/sky130hd
+
+K=1 calibration, 512 predicted configurations, 4 built and scored.
+
+```
+K=1 calibration        4171 s   (one real aes flow)
+predict 512 configs       1.7 s  (3.32 ms each)
+                                 60,277x faster than building them
+```
+
+## Scorecard
+
+```
+clock_wirelength_um   n=4  MAE=289.4   (2.6% of mean)   rank_corr=+0.40
+clock_power_w         n=4  MAE=0.00188 (16.1% of mean)  rank_corr=+0.00
+clock_skew_setup      not produced
+```
+
+**Wirelength works.** Per-candidate error 0.7%, 0.7%, 2.2%, 6.3%; the paper
+reports 0.6% at K=1 on its base designs, so 2.6% mean on a fresh ORFS placement
+is consistent.
+
+**Power carries no signal here, and the scorecard is what showed it.** The
+prediction was *byte-identical* across all four candidates — one distinct value
+against four distinct wirelength values — so `rank_corr` is exactly 0.00. Two
+causes, both real:
+
+1. **No SAIF.** ORFS runs no gate-level simulation, so every switching-activity
+   feature falls back to a default. Power is dominated by activity.
+2. **The power head sees only one knob.** `_build_pw_features(d, s, t, f_ghz,
+   sa, cd)` takes cluster *diameter* and not cluster size, max wire or buffer
+   distance — and it was insensitive to diameter over 35-65 um on this design.
+
+This is exactly why the scorecard reports rank correlation and not just error.
+A 16% MAE looks survivable; `rank_corr=0.00` says the model cannot order
+candidates at all, which for a screen is the only thing that matters. Reporting
+MAE alone would have hidden it.
+
+**Skew was not produced at all.** `skew_ns` is None, so the adapter omits the
+key rather than reporting a z-score in nanosecond units. Absolute skew needs a
+per-placement anchor (paper, Table III footnote: *"K=0 yields relative
+z-scores; absolute ns extraction requires K>=1"*) — but the shipped API exposes
+only `calibrate_power` and `calibrate_wl`. There is **no public skew
+calibration hook**, so a fresh placement cannot get absolute skew through the
+supported interface.
+
+## What this says about Step 8
+
+For the four-arm evaluation, SwiftCTS is currently a **wirelength** screen on
+ORFS placements, not a three-objective one. Making power useful needs a SAIF —
+which means a gate-level simulation ORFS does not run. Making skew useful needs
+an anchoring entry point SwiftCTS does not expose.
+
+Both are tractable and neither is an interface problem: the socket carried a
+model whose outputs disagreed with reality, scored it, and said which part was
+wrong. That is what it was built to do.
+
+## Caveat on this run
+
+Candidate selection was flawed: evenly-spaced indices into the grid held
+cluster size and buffer distance at their minimums, so only diameter varied.
+Fixed (greedy max-min in normalised knob space), but these four numbers
+describe one axis. Rerunning with diverse candidates is the first thing to do
+when checkpoint branching makes it cheap.
