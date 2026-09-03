@@ -53,7 +53,7 @@ through `ChiaFunction`'s local (non-Ray) call path. Step 1 tells us which.
 
 ---
 
-## Step 2 — `OpenROADNode`, local only  ✅ BODY DONE (dispatch pending Step 3)
+## Step 2 — `OpenROADNode`  ✅ DONE
 
 **Goal.** ORFS stages as `@ChiaFunction` members on a `ColocatedNode`, returning structured
 metrics — no cluster, no agent, no surrogate.
@@ -97,7 +97,7 @@ overshoot. No LLM will guess that.
 
 ---
 
-## Step 3 — GCP cluster  ← NEXT
+## Step 3 — GCP cluster  ✅ DONE
 
 **Goal.** The same node running on real GCP workers.
 
@@ -111,7 +111,7 @@ Also: kill a worker mid-flow and confirm it resumes from the last valid stage.
 
 ---
 
-## Step 4 — Agent tools and the trust boundary
+## Step 4 — Agent tools and the trust boundary  ✅ DONE
 
 **Goal.** The agent can read reports and propose bounded knob changes — and can do nothing else.
 
@@ -139,7 +139,7 @@ parses a report, or checks a constraint.
 
 ---
 
-## Step 5 — Surrogate interface
+## Step 5 — Surrogate interface  ✅ DONE
 
 **Goal.** The replaceable evaluator socket. Deliverable #3 is this interface, not SwiftCTS.
 
@@ -153,7 +153,7 @@ interface is general far better than two quality models would.
 
 ---
 
-## Step 6 — SwiftCTS evaluator
+## Step 6 — SwiftCTS evaluator  ✅ DONE (wirelength only — see 05-surrogates.md)
 
 **Writes.** `chia_openroad/swiftcts_evaluator.py` (this repo — deliberately *not* upstream).
 
@@ -163,7 +163,7 @@ straight out of `6_report.json`.
 
 ---
 
-## Step 7 — The loop
+## Step 7 — The loop  ← NEXT
 
 **Writes.** `examples/openroad_orfs/orfs_loop.py`.
 
