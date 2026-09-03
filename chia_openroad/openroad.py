@@ -841,8 +841,8 @@ class OpenROADNode(ColocatedNode):
     test it against, rather than shipped untested.
     """
 
-    _MEMBER_FNS = ("run_stage", "emit_artifacts", "measure_clock", "read_metrics",
-                   "collect", "list_matches")
+    _MEMBER_FNS = ("run_stage", "branch", "emit_artifacts", "measure_clock",
+                   "read_metrics", "collect", "list_matches")
     _DEFAULT_BUNDLE = {"CPU": 1, "orfs": 1}
 
     @staticmethod
@@ -1021,6 +1021,74 @@ class OpenROADNode(ColocatedNode):
             stdout_tail=(stdout or "")[-4000:],
             stderr_tail=(stderr or "")[-4000:],
         )
+
+    @staticmethod
+    @ChiaFunction(resources={"orfs": 1})
+    def branch(
+        base_work_home: str,
+        work_home: str,
+        design_config: str,
+        *,
+        through_stage: str = "place",
+        orfs_home: str = DEFAULT_ORFS_HOME,
+        variant: str = "base",
+    ) -> dict:
+        """Seed a candidate WORK_HOME from a shared prefix, so make resumes.
+
+        A clock-tree surrogate screens CTS knobs against a *fixed* placement, so
+        every candidate shares synth, floorplan and placement exactly. Running
+        each one in a fresh WORK_HOME rebuilds all of that: measured on
+        aes/sky130hd, a candidate took ~65 minutes and roughly three quarters of
+        it reproduced an identical placement. The surrogate then saves nothing,
+        because the expensive part runs whatever it predicted.
+
+        Copying the prefix in makes ``make`` resume at the first stage after
+        *through_stage*. Copy rather than hardlink: ORFS rewrites some files in
+        place, and a hardlinked tree would corrupt the base every candidate.
+
+        The knob manifest is copied too — without it the candidate looks like a
+        fresh tree, and the invalidation diff has nothing to compare against.
+        """
+        flow_dir = os.path.join(orfs_home, "flow")
+        base_work_home = os.path.abspath(base_work_home)
+        work_home = os.path.abspath(work_home)
+        config_path = (design_config if os.path.isabs(design_config)
+                       else os.path.normpath(os.path.join(flow_dir, design_config)))
+        platform, design = _parse_design_config(config_path)
+        src = _dirs(base_work_home, platform, design, variant)
+        dst = _dirs(work_home, platform, design, variant)
+
+        keep = STAGE_PREFIX[through_stage]
+        copied = 0
+        total_bytes = 0
+        for kind in ("results", "logs", "reports", "objects"):
+            if not os.path.isdir(src[kind]):
+                continue
+            os.makedirs(dst[kind], exist_ok=True)
+            for name in sorted(os.listdir(src[kind])):
+                m = re.match(r"(\d)_", name)
+                # Stage-numbered artifacts up to the branch point, plus
+                # un-numbered ones (abc.constr, copyright.txt, clock_period.txt)
+                # which later stages expect to find.
+                if m and int(m.group(1)) > keep:
+                    continue
+                source = os.path.join(src[kind], name)
+                if not os.path.isfile(source):
+                    continue
+                shutil.copy2(source, os.path.join(dst[kind], name))
+                copied += 1
+                total_bytes += os.path.getsize(source)
+
+        manifest = os.path.join(base_work_home, KNOB_MANIFEST)
+        if os.path.exists(manifest):
+            os.makedirs(work_home, exist_ok=True)
+            shutil.copy2(manifest, os.path.join(work_home, KNOB_MANIFEST))
+
+        logger.info("branched %s -> %s through %s: %d file(s), %.1f MB",
+                    base_work_home, work_home, through_stage, copied,
+                    total_bytes / 1e6)
+        return {"files": copied, "bytes": total_bytes, "through_stage": through_stage,
+                "work_home": work_home}
 
     @staticmethod
     @ChiaFunction(resources={"orfs": 1})

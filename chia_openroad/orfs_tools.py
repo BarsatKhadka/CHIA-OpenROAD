@@ -46,7 +46,10 @@ MAX_POLL_SECONDS = 180
 
 @ray.remote(num_cpus=0)
 def _run_candidate(work_home: str, design_config: str, knobs: dict,
-                   gate: str | None, target: str, orfs_home: str | None):
+                   gate: str | None, target: str, orfs_home: str | None,
+                   branch_from: str | None = None,
+                   branch_through: str = "place",
+                   measure_clock: bool = False):
     """Driver-side orchestrator for one candidate.
 
     ``num_cpus=0`` because this holds no resources itself — it reserves an
@@ -56,8 +59,23 @@ def _run_candidate(work_home: str, design_config: str, knobs: dict,
     from chia.base.ChiaFunction import get
     kw = {"orfs_home": orfs_home} if orfs_home else {}
     with OpenROADNode() as node:
+        if branch_from:
+            # Seed from the shared prefix so make resumes at the first stage
+            # after the branch point. Without this every candidate rebuilds an
+            # identical placement, and a screen that picks better candidates
+            # saves nothing at all.
+            get(node.branch.chia_remote(branch_from, work_home, design_config,
+                                        through_stage=branch_through, **kw))
+
         def run(stage, **inner):
-            return get(node.run_stage.chia_remote(stage, **inner, **kw))
+            r = get(node.run_stage.chia_remote(stage, **inner, **kw))
+            if measure_clock and r.success and stage in ("route", "finish"):
+                clock = get(node.measure_clock.chia_remote(
+                    inner["work_home"], inner["design_config"], stage="route", **kw))
+                r.clock_metrics = clock
+                r.summary.update(clock)
+            return r
+
         return run_flow(run, work_home, design_config, knobs, gate=gate, target=target)
 
 
@@ -75,7 +93,17 @@ class ORFSAgentTool(ChiaTool):
     def setup(self, *, policy: KnobPolicy, store: CandidateStore,
               failures: FailureLog, design_config: str, work_root: str,
               arm: str = "agent", gate: str | None = DEFAULT_GATE_STAGE,
-              orfs_home: str | None = None):
+              orfs_home: str | None = None, branch_from: str | None = None,
+              branch_through: str = "place", surrogate=None, state=None,
+              measure_clock: bool = False):
+        #: Shared prefix every candidate seeds from, if the loop built one.
+        self.branch_from = branch_from
+        self.branch_through = branch_through
+        #: Optional screen. The agent sees its ranking; ORFS still decides.
+        self.surrogate = surrogate
+        self.state = state
+        self.measure_clock = measure_clock
+        self.scorecard = None
         self.policy = policy
         self.store = store
         self.failures = failures
@@ -86,10 +114,13 @@ class ORFSAgentTool(ChiaTool):
         self.orfs_home = orfs_home
         self._pending: dict[int, object] = {}     # candidate id -> ObjectRef
 
-        for fn in (self.list_legal_knobs, self.propose_candidate,
-                   self.candidate_status, self.list_candidates,
-                   self.compare_candidates, self.past_failures,
-                   self.best_candidate):
+        tools = [self.list_legal_knobs, self.propose_candidate,
+                 self.candidate_status, self.list_candidates,
+                 self.compare_candidates, self.past_failures,
+                 self.best_candidate]
+        if self.surrogate is not None:
+            tools.append(self.screen_candidates)
+        for fn in tools:
             self.mcp.add_tool(fn, name=f"{self.name}_{fn.__name__}")
 
     # ------------------------------------------------------------------ #
@@ -134,7 +165,9 @@ class ORFSAgentTool(ChiaTool):
 
         ref = _run_candidate.remote(f"{self.work_root}/cand-{cid:05d}",
                                     self.design_config, knobs, self.gate,
-                                    "finish", self.orfs_home)
+                                    "finish", self.orfs_home,
+                                    self.branch_from, self.branch_through,
+                                    self.measure_clock)
         self._pending[cid] = ref
         return (f"candidate {cid} started with {knobs}. "
                 f"Poll candidate_status({cid}); expect a few minutes.")
@@ -205,6 +238,57 @@ class ORFSAgentTool(ChiaTool):
         metrics = ", ".join(f"{k}={v:.6g}" for k, v in sorted((c.metrics or {}).items())
                             if isinstance(v, (int, float)))
         return f"{c.one_line()}\n  all metrics: {metrics}"
+
+    def screen_candidates(self, count: int = 5) -> str:
+        """Ask a fast model which configurations look most promising.
+
+        These are ESTIMATES from a surrogate, not measurements. They cost
+        milliseconds instead of a build, so they are worth using to choose what
+        to build — but only a real run decides anything. Propose the ones that
+        look good and check them with propose_candidate.
+
+        Args:
+            count: how many suggestions to return, best first.
+        """
+        from chia_openroad.surrogate import ORFS_METRICS
+        grid = self._screen_grid()
+        preds = self.surrogate.predict(self.state, grid)
+        objective = next((k for k, v in self.surrogate.predicts.items()
+                          if v == "orfs_metric" and k in ORFS_METRICS), None)
+        if objective is None:
+            return "the screen predicts nothing comparable to an ORFS metric"
+        better_is_higher = ORFS_METRICS[objective] == "higher"
+        ranked = sorted((p for p in preds if objective in p.values),
+                        key=lambda p: p.values[objective], reverse=better_is_higher)
+        head = (f"{self.surrogate.name} ranked {len(ranked)} configurations by "
+                f"predicted {objective} ({'higher' if better_is_higher else 'lower'} "
+                f"is better) in {sum(p.cost_s for p in preds):.2f}s. "
+                f"These are predictions, not results:")
+        lines = [f"  {p.values[objective]:>12.6g}  "
+                 f"{', '.join(f'{k}={v}' for k, v in sorted(p.knobs.items()))}"
+                 for p in ranked[:count]]
+        return head + "\n" + "\n".join(lines)
+
+    def _screen_grid(self, per_axis: int = 6) -> list[dict]:
+        """Configurations to screen: the legal ranges, intersected with whatever
+        range the surrogate was actually fitted over."""
+        import itertools
+        axes = []
+        for name, spec in sorted(self.policy.knobs.items()):
+            if spec.stage != "cts" or spec.low is None:
+                continue
+            low, high = spec.low, spec.high
+            fitted = getattr(self.surrogate, "domain", {}).get(name)
+            if fitted:                       # never ask outside the training domain
+                low, high = max(low, fitted[0]), min(high, fitted[1])
+            if high <= low:
+                continue
+            step = (high - low) / (per_axis - 1)
+            vals = [round(low + i * step, 3) for i in range(per_axis)]
+            if spec.kind == "int":
+                vals = sorted({int(round(v)) for v in vals})
+            axes.append([(name, v) for v in vals])
+        return [dict(c) for c in itertools.product(*axes)] if axes else []
 
     def past_failures(self, limit: int = 10) -> str:
         """Configurations already known not to build, and why.
