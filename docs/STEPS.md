@@ -171,16 +171,47 @@ straight out of `6_report.json`.
 
 ---
 
-## Step 8 — Four-arm evaluation
-
-Default ORFS / ORFS AutoTuner / agent without surrogate / agent with SwiftCTS. Equal compute
-budget, small + medium design.
-
-**Done when.** Tool invocations, wall-clock, QoR, and DRC/LVS status recorded for all four.
-
 ---
 
-## Step 9 — Upstream
+# Beyond the build
 
-Clean the fork's diff to the parts that belong in `ucb-bar/chia`, with docs and an example.
-SwiftCTS stays out — that separation is what demonstrates the interface is replaceable.
+Step 7 is the last build step. What follows is not sequenced work.
+
+## Four-arm evaluation — for the paper, later
+
+Default ORFS / ORFS AutoTuner / agent without surrogate / agent with SwiftCTS,
+equal compute budget, small and medium designs. The ledger already counts
+`tool_runs`, wall clock and QoR per arm, so this is a matter of running it, not
+of building anything.
+
+Decide first what the surrogate arm actually screens on. As measured on aes,
+SwiftCTS gives a usable **wirelength** signal (2.6% MAE), no usable power signal
+(`rank_corr` 0.00, no SAIF), and no skew at all (no public anchoring hook). An
+arm labelled "with SwiftCTS" that screens one of three objectives should say so.
+
+## Upstream-ready — a property, not a step
+
+Deliverable #5 asks for an *upstream-ready* implementation. That is a bar the
+code is written to, not a task to schedule: whether anything merges is the CHIA
+maintainers' decision.
+
+What it means in practice, and what has been done throughout:
+
+- node code shaped to sit at `chia/vlsi/openroad.py`, mirroring
+  `chia/vlsi/hammer.py`'s conventions (`ColocatedNode`, `_MEMBER_FNS`,
+  `collect`/`list_matches` with matching semantics)
+- the surrogate interface shaped to sit at `chia/analysis/surrogate.py`, with no
+  dependency on anything ORFS-specific beyond metric names
+- SwiftCTS deliberately **outside** that boundary, in `chia_openroad/surrogates/`,
+  so the socket is demonstrably not built around one model
+- a worked example and cluster config under `examples/openroad_orfs/`
+- findings that are really ORFS bugs written up in `docs/` rather than patched
+  around silently
+
+## Parked
+
+- **LVS** — DRC is clean; LVS is blocked by ORFS's own collateral (`docs/03-setup.md`)
+- **Knob efficacy** — two gcd knobs gave identical metrics; judged a small-design
+  artifact, and aes will settle it
+- **SAIF for power, anchoring for skew** — both would widen what SwiftCTS can
+  screen on
