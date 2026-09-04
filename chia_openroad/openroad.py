@@ -1036,11 +1036,22 @@ class OpenROADNode(ColocatedNode):
         """Seed a candidate WORK_HOME from a shared prefix, so make resumes.
 
         A clock-tree surrogate screens CTS knobs against a *fixed* placement, so
-        every candidate shares synth, floorplan and placement exactly. Running
-        each one in a fresh WORK_HOME rebuilds all of that: measured on
-        aes/sky130hd, a candidate took ~65 minutes and roughly three quarters of
-        it reproduced an identical placement. The surrogate then saves nothing,
-        because the expensive part runs whatever it predicted.
+        every candidate shares synth, floorplan and placement exactly, and
+        rebuilding them per candidate is waste.
+
+        **How much waste is design-dependent, and on aes it is small.** Measured
+        from artifact timestamps on aes/sky130hd:
+
+            synth + floorplan + placement      55 s     1.4%
+            global route                      548 s      12%
+            detailed route                   3402 s      86%
+
+        So branching saved ~7% here (3732 s against an unbranched mean of
+        ~4012 s), not the large fraction one might assume. Detailed routing
+        dominates. Branching is still correct and free, and it matters far more
+        on designs where placement is expensive relative to routing — but on
+        this one the real lever is not building doomed candidates at all
+        (`run_flow`'s cts gate stops before the 86%).
 
         Copying the prefix in makes ``make`` resume at the first stage after
         *through_stage*. Copy rather than hardlink: ORFS rewrites some files in

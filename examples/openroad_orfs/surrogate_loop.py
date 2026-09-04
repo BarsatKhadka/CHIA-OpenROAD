@@ -11,9 +11,10 @@ Three properties this is built to hold, all enforced in code rather than asked
 for in a prompt:
 
 * **Candidates branch from the shared placement.** A clock-tree screen only
-  makes sense against a fixed placement, and rebuilding it per candidate would
-  cost more than the screen saves. Measured on aes: ~65 min per candidate, three
-  quarters of it reproducing an identical placement.
+  makes sense against a fixed placement, so candidates seed from it rather than
+  rebuild it. On aes that saves about 7%: placement is only 1.4% of the flow and
+  detailed routing is 86%. The saving is real but small here — the lever that
+  matters on this design is not routing candidates that are not worth routing.
 * **The agent never certifies anything.** It proposes knobs and reads summaries.
   Execution, report parsing, DRC/LVS and the feasibility verdict stay
   programmatic and out of reach.
