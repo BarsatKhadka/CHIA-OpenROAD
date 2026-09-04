@@ -192,18 +192,41 @@ class SwiftCTSEvaluator(SurrogateEvaluator):
             return
 
         model = self._load()
-        # The adapter cannot compute clock power/wirelength itself; the caller
-        # supplies measured values via `state.metrics` on the anchor results.
+        # Ground truth comes from the result's `summary`, which is where
+        # OpenROADNode.measure_clock's figures are merged. Reading a bespoke
+        # attribute instead is how an earlier version silently skipped
+        # calibration entirely: k_shot was recorded as 1 while no scale factor
+        # was ever applied, and predictions came out ~20x high. `summary` is the
+        # documented place; the attribute is only a fallback.
+        applied = 0
         for truth, pred in zip(truths, preds):
-            measured = getattr(truth, "clock_metrics", None) or {}
-            if "clock_power_w" in measured:
+            measured = dict(getattr(truth, "clock_metrics", None) or {})
+            measured.update({k: v for k, v in (truth.summary or {}).items()
+                             if k in ("clock_power_w", "clock_wirelength_um")})
+            if "clock_power_w" in measured and "clock_power_w" in pred.values:
                 model.calibrate_power(self._pid, measured["clock_power_w"] * 1000.0,
                                       pred.values["clock_power_w"] * 1000.0)
-            if "clock_wirelength_um" in measured:
+                applied += 1
+            if "clock_wirelength_um" in measured and "clock_wirelength_um" in pred.values:
                 model.calibrate_wl(self._pid, measured["clock_wirelength_um"] / 1000.0,
                                    pred.values["clock_wirelength_um"] / 1000.0)
+                applied += 1
+
+        if not applied:
+            # Report K=0 rather than K=1: an uncalibrated model that claims to
+            # be anchored is worse than one that admits it is not.
+            self.k_shot = 0
+            logger.error(
+                "K-shot ran %d anchor(s) but no clock ground truth reached the "
+                "model, so no scale factor was applied. Predictions stay "
+                "uncalibrated (absolute values will be far off; ordering is "
+                "unaffected, since calibration is multiplicative). Ensure the "
+                "loop's `run` merges measure_clock output into result.summary.",
+                len(truths))
+            return
         self.k_shot = len(truths)
-        logger.info("K-shot calibration complete with K=%d", self.k_shot)
+        logger.info("K-shot calibration complete with K=%d (%d scale factor(s))",
+                    self.k_shot, applied)
 
     def _anchor_knobs(self, k: int) -> list[dict]:
         """Reference configurations for K-shot, spread across the fitted domain.

@@ -147,7 +147,22 @@ def main():
 
     base = f"{args.work_root}/{args.design}-base"
     with OpenROADNode() as node:
+        branched = set()
+
         def run(stage, **kw):
+            """The loop's ORFS callable.
+
+            Anything run outside the base tree is a variation on the shared
+            placement, so seed it from the base first. This matters for the
+            surrogate's own K-shot anchors as much as for candidates: on aes the
+            anchor took 4646 s precisely because it rebuilt synth, floorplan and
+            placement that already existed next door.
+            """
+            work = kw.get("work_home")
+            if work and work != base and work not in branched:
+                branched.add(work)
+                get(node.branch.chia_remote(base, work, kw["design_config"],
+                                            through_stage="place"))
             r = get(node.run_stage.chia_remote(stage, **kw))
             if r.success and stage in ("route", "finish"):
                 r.summary.update(get(node.measure_clock.chia_remote(
