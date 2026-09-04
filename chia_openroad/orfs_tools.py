@@ -94,16 +94,22 @@ class ORFSAgentTool(ChiaTool):
               failures: FailureLog, design_config: str, work_root: str,
               arm: str = "agent", gate: str | None = DEFAULT_GATE_STAGE,
               orfs_home: str | None = None, branch_from: str | None = None,
-              branch_through: str = "place", surrogate=None, state=None,
+              branch_through: str = "place", screen: dict | None = None,
               measure_clock: bool = False):
         #: Shared prefix every candidate seeds from, if the loop built one.
         self.branch_from = branch_from
         self.branch_through = branch_through
-        #: Optional screen. The agent sees its ranking; ORFS still decides.
-        self.surrogate = surrogate
-        self.state = state
+        #: A PRECOMPUTED ranking, not a live model:
+        #:   {"name":..., "metric":..., "better":"lower"|"higher",
+        #:    "cost_s":..., "ranked":[(knobs, value), ...]}
+        #:
+        #: The surrogate screens against a *fixed* placement, so its ordering
+        #: cannot change during the loop — computing it once on the driver is
+        #: equivalent and avoids shipping a fitted model into the tool's Ray
+        #: actor. It could not go there anyway: a ChiaTool is pickled to reach
+        #: its actor, and the actor has no import path for SwiftCTS.
+        self.screen = screen
         self.measure_clock = measure_clock
-        self.scorecard = None
         self.policy = policy
         self.store = store
         self.failures = failures
@@ -118,7 +124,7 @@ class ORFSAgentTool(ChiaTool):
                  self.candidate_status, self.list_candidates,
                  self.compare_candidates, self.past_failures,
                  self.best_candidate]
-        if self.surrogate is not None:
+        if self.screen:
             tools.append(self.screen_candidates)
         for fn in tools:
             self.mcp.add_tool(fn, name=f"{self.name}_{fn.__name__}")
@@ -240,55 +246,25 @@ class ORFSAgentTool(ChiaTool):
         return f"{c.one_line()}\n  all metrics: {metrics}"
 
     def screen_candidates(self, count: int = 5) -> str:
-        """Ask a fast model which configurations look most promising.
+        """Which configurations a fast model predicts will do well.
 
-        These are ESTIMATES from a surrogate, not measurements. They cost
-        milliseconds instead of a build, so they are worth using to choose what
-        to build — but only a real run decides anything. Propose the ones that
-        look good and check them with propose_candidate.
+        These are ESTIMATES, not measurements. They cost milliseconds rather
+        than a build, so they are worth using to decide what to build — but only
+        a real run settles anything. Propose the promising ones with
+        propose_candidate and check them.
 
         Args:
-            count: how many suggestions to return, best first.
+            count: how many to return, best first.
         """
-        from chia_openroad.surrogate import ORFS_METRICS
-        grid = self._screen_grid()
-        preds = self.surrogate.predict(self.state, grid)
-        objective = next((k for k, v in self.surrogate.predicts.items()
-                          if v == "orfs_metric" and k in ORFS_METRICS), None)
-        if objective is None:
-            return "the screen predicts nothing comparable to an ORFS metric"
-        better_is_higher = ORFS_METRICS[objective] == "higher"
-        ranked = sorted((p for p in preds if objective in p.values),
-                        key=lambda p: p.values[objective], reverse=better_is_higher)
-        head = (f"{self.surrogate.name} ranked {len(ranked)} configurations by "
-                f"predicted {objective} ({'higher' if better_is_higher else 'lower'} "
-                f"is better) in {sum(p.cost_s for p in preds):.2f}s. "
-                f"These are predictions, not results:")
-        lines = [f"  {p.values[objective]:>12.6g}  "
-                 f"{', '.join(f'{k}={v}' for k, v in sorted(p.knobs.items()))}"
-                 for p in ranked[:count]]
+        sc = self.screen
+        ranked = sc["ranked"][:max(1, int(count))]
+        head = (f"{sc['name']} ranked {len(sc['ranked'])} configurations by "
+                f"predicted {sc['metric']} ({sc['better']} is better) in "
+                f"{sc['cost_s']:.2f}s. These are predictions, not results:")
+        lines = [f"  {value:>12.6g}  "
+                 f"{', '.join(f'{k}={v}' for k, v in sorted(knobs.items()))}"
+                 for knobs, value in ranked]
         return head + "\n" + "\n".join(lines)
-
-    def _screen_grid(self, per_axis: int = 6) -> list[dict]:
-        """Configurations to screen: the legal ranges, intersected with whatever
-        range the surrogate was actually fitted over."""
-        import itertools
-        axes = []
-        for name, spec in sorted(self.policy.knobs.items()):
-            if spec.stage != "cts" or spec.low is None:
-                continue
-            low, high = spec.low, spec.high
-            fitted = getattr(self.surrogate, "domain", {}).get(name)
-            if fitted:                       # never ask outside the training domain
-                low, high = max(low, fitted[0]), min(high, fitted[1])
-            if high <= low:
-                continue
-            step = (high - low) / (per_axis - 1)
-            vals = [round(low + i * step, 3) for i in range(per_axis)]
-            if spec.kind == "int":
-                vals = sorted({int(round(v)) for v in vals})
-            axes.append([(name, v) for v in vals])
-        return [dict(c) for c in itertools.product(*axes)] if axes else []
 
     def past_failures(self, limit: int = 10) -> str:
         """Configurations already known not to build, and why.

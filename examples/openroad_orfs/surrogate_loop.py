@@ -53,6 +53,51 @@ def load_policy(path):
     return policy.with_calibration(measured)
 
 
+def build_screen(surrogate, state, policy, per_axis=6):
+    """Rank every in-domain CTS configuration, once.
+
+    The placement is fixed for the whole loop, so the surrogate's ordering is
+    fixed too. Computing it here rather than inside the agent's tool keeps the
+    fitted model on the driver — where its Python dependencies live — instead of
+    trying to pickle it into a Ray actor that cannot import them.
+    """
+    import itertools
+    from chia_openroad.surrogate import ORFS_METRICS
+
+    axes = []
+    for name, spec in sorted(policy.knobs.items()):
+        if spec.stage != "cts" or spec.low is None:
+            continue
+        low, high = spec.low, spec.high
+        fitted = getattr(surrogate, "domain", {}).get(name)
+        if fitted:                       # never screen outside the training domain
+            low, high = max(low, fitted[0]), min(high, fitted[1])
+        if high <= low:
+            continue
+        step = (high - low) / (per_axis - 1)
+        vals = [round(low + i * step, 3) for i in range(per_axis)]
+        if spec.kind == "int":
+            vals = sorted({int(round(v)) for v in vals})
+        axes.append([(name, v) for v in vals])
+    grid = [dict(c) for c in itertools.product(*axes)] if axes else []
+
+    preds = surrogate.predict(state, grid)
+    # Rank on the one objective this surrogate actually predicts usefully.
+    # Measured on aes: wirelength tracks reality (2.6% MAE, rank_corr +0.40);
+    # clock power does not (rank_corr 0.00, no SAIF) and skew is not produced.
+    objective = "clock_wirelength_um"
+    usable = [p for p in preds if objective in p.values]
+    if not usable:
+        objective = next((k for k, v in surrogate.predicts.items()
+                          if v == "orfs_metric"), None)
+        usable = [p for p in preds if objective and objective in p.values]
+    better = ORFS_METRICS.get(objective, "lower")
+    usable.sort(key=lambda p: p.values[objective], reverse=(better == "higher"))
+    return {"name": surrogate.name, "metric": objective, "better": better,
+            "cost_s": sum(p.cost_s for p in preds),
+            "ranked": [(p.knobs, p.values[objective]) for p in usable]}
+
+
 def fetch(node, base, remote, dest_dir):
     """Artifacts are produced in the worker container; the surrogate runs
     driver-side. Bring them across."""
@@ -138,34 +183,52 @@ def main():
         surrogate.calibrate(state, run=run, budget_runs=args.k_shot)
         print(f"    k_shot={surrogate.k_shot} in {time.monotonic()-t1:.0f}s", flush=True)
 
+        print("\n=== 4. screen (computed once, on the driver) ===", flush=True)
+        screen = build_screen(surrogate, state, policy)
+        print(f"    {surrogate.name} ranked {len(screen['ranked'])} configurations "
+              f"by predicted {screen['metric']} in {screen['cost_s']:.2f}s", flush=True)
+        for knobs, value in screen["ranked"][:5]:
+            print(f"      {value:>12.6g}  "
+                  f"{', '.join(f'{k}={v}' for k, v in sorted(knobs.items()))}", flush=True)
+
         tool = ORFSAgentTool(
             "orfs", policy=policy, store=store, failures=failures,
             design_config=design_config, work_root=args.work_root,
             arm=f"agent+{args.model}" if not args.no_agent else "screen-only",
             branch_from=base, branch_through="place",
-            surrogate=surrogate, state=state, measure_clock=True,
+            screen=screen, measure_clock=True,
             task_options={"scheduling_strategy": __import__(
                 "ray.util.scheduling_strategies", fromlist=["x"]
             ).NodeAffinitySchedulingStrategy(
                 ray.get_runtime_context().get_node_id(), soft=False)})
 
         try:
-            print("\n=== 4. screen ===", flush=True)
-            print(tool.screen_candidates(count=8), flush=True)
-
             print("\n=== 5. build ===", flush=True)
             if args.no_agent:
-                # Screen-only arm: take the surrogate's top picks directly.
-                ranked = tool.screen_candidates(count=args.picks).splitlines()[1:]
-                for line in ranked:
-                    knobs = dict((k, float(v)) for k, v in
-                                 (kv.split("=") for kv in line.split("  ")[-1].split(", ")))
-                    knobs = {k: int(v) if k == "CTS_CLUSTER_SIZE" else v
-                             for k, v in knobs.items()}
-                    cid = tool.propose_candidate(knobs)
-                    print("   ", cid, flush=True)
-                    print("   ", tool.candidate_status(
-                        int(cid.split()[1]), max_wait_seconds=170), flush=True)
+                # Screen-only arm: build the surrogate's top picks directly, no LLM.
+                card = Scorecard(surrogate.name)
+                for knobs, predicted in screen["ranked"][:args.picks]:
+                    reply = tool.propose_candidate(dict(knobs))
+                    print("   ", reply, flush=True)
+                    if "started" not in reply:
+                        continue
+                    cid = int(reply.split()[1])
+                    while True:
+                        status = tool.candidate_status(cid, max_wait_seconds=170)
+                        if "still running" not in status:
+                            break
+                    print("   ", status, flush=True)
+                    row = store.get(cid)
+                    if row and row.status == "built" and row.metrics:
+                        actual = row.metrics.get(screen["metric"])
+                        if isinstance(actual, (int, float)):
+                            err = 100 * abs(predicted - actual) / (abs(actual) or 1)
+                            print(f"        predicted {predicted:.6g} vs actual "
+                                  f"{actual:.6g}  ({err:.1f}%)", flush=True)
+                            card.pairs.setdefault(screen["metric"], []).append(
+                                (predicted, actual))
+                print("\n=== screen accuracy ===")
+                print(card.summary())
             else:
                 system = ("You are an expert physical-design engineer tuning a clock "
                           "tree. Act only through the tools. Never report a result you "
