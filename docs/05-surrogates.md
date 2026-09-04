@@ -3,6 +3,22 @@
 A surrogate is a cheap model that screens configurations so ORFS runs on fewer
 of them. This is the socket; the models are plugins.
 
+## Start here
+
+```bash
+cp chia_openroad/surrogates/template.py chia_openroad/surrogates/mymodel.py
+```
+
+Delete the parts you do not need, fill in `_predict`, then:
+
+```python
+from chia_openroad.surrogate import conformance_check
+from chia_openroad.surrogates.mymodel import MyModel
+conformance_check(MyModel())
+```
+
+Two seconds, and it catches the mistakes that are otherwise invisible.
+
 ## The minimum
 
 ```python
