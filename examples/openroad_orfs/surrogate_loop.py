@@ -179,6 +179,8 @@ def main():
     ap.add_argument("--swiftcts-dir", default=os.environ.get(
         "SWIFTCTS_DIR", os.path.expanduser("~/SwiftCTS/SwiftCTS")))
     ap.add_argument("--k-shot", type=int, default=1)
+    ap.add_argument("--llm-timeout", type=int, default=600,
+                    help="per-call ceiling; the Vertex backend has been seen to hang")
     ap.add_argument("--no-agent", action="store_true",
                     help="screen and build the top picks without an LLM")
     ap.add_argument("--picks", type=int, default=3,
@@ -304,8 +306,14 @@ def main():
                 system = ("You are an expert physical-design engineer tuning a clock "
                           "tree. Act only through the tools. Never report a result you "
                           "have not seen returned by candidate_status.")
+                # A short timeout on purpose. VertexGeminiLLM is the backend
+                # CHIA marks experimental, and an observed run sat on an open
+                # generateContent call for over an hour past its own 3600 s
+                # timeout while a completed candidate went unrecorded. Failing
+                # fast and draining beats hanging.
                 llm = VertexGeminiLLM(model=args.model, system_message=system,
-                                      timeout_seconds=3600, max_tool_iterations=80)
+                                      timeout_seconds=args.llm_timeout,
+                                      retries=2, max_tool_iterations=80)
                 task = open(os.path.join(HERE, "prompts", "explore_pd.md")).read()
                 slots = int(ray.cluster_resources().get("orfs", 1))
                 task += (
@@ -324,8 +332,16 @@ def main():
                     f"Begin by calling `list_legal_knobs`. Act by calling tools — do "
                     f"not describe a plan without carrying it out, because a reply "
                     f"with no tool call ends the session.\n")
-                res = llm.prompt(task, tools=[tool])
-                print("\n=== agent summary ===\n" + str(getattr(res, "result", res))[-3000:])
+                try:
+                    res = llm.prompt(task, tools=[tool])
+                    print("\n=== agent summary ===\n"
+                          + str(getattr(res, "result", res))[-3000:])
+                except Exception as exc:
+                    # Whatever the agent did before failing is still worth
+                    # collecting: a candidate that reached GDS is a real result
+                    # regardless of what the model did afterwards.
+                    print(f"\n=== agent errored: {type(exc).__name__}: {exc} ===",
+                          flush=True)
 
                 # A reply carrying no tool call ends the client-side loop, so an
                 # agent that narrates its plan without acting finishes having
