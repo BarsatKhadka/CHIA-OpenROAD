@@ -54,6 +54,45 @@ def load_policy(path):
     return policy.with_calibration(measured)
 
 
+class AgentTimeout(Exception):
+    pass
+
+
+def _prompt_with_deadline(llm, task, tools, deadline_s):
+    """Run the agent with a wall-clock cap we enforce ourselves.
+
+    VertexGeminiLLM takes a `timeout_seconds`, but it does not bound the call:
+    observed twice, a session set to 420 s sat on an open generateContent
+    request for over two hours while the ORFS flow underneath completed
+    normally and its result went uncollected.
+
+    The agent runs on a daemon thread so a hang cannot keep the process alive.
+    Whatever it managed before the deadline is already in the ledger, and the
+    caller drains the in-flight candidates either way — a build that reached
+    GDS is a real result no matter what the model did afterwards.
+    """
+    import threading
+
+    box = {}
+
+    def go():
+        try:
+            box["result"] = llm.prompt(task, tools=tools)
+        except BaseException as exc:       # noqa: BLE001 - reported, not swallowed
+            box["error"] = exc
+
+    thread = threading.Thread(target=go, daemon=True)
+    thread.start()
+    thread.join(deadline_s)
+    if thread.is_alive():
+        raise AgentTimeout(
+            f"no response within {deadline_s}s — abandoning the agent session "
+            f"and collecting whatever it started")
+    if "error" in box:
+        raise box["error"]
+    return box["result"]
+
+
 def build_screen(surrogate, state, policy, per_axis=6):
     """Rank every in-domain CTS configuration, once.
 
@@ -180,7 +219,11 @@ def main():
         "SWIFTCTS_DIR", os.path.expanduser("~/SwiftCTS/SwiftCTS")))
     ap.add_argument("--k-shot", type=int, default=1)
     ap.add_argument("--llm-timeout", type=int, default=600,
-                    help="per-call ceiling; the Vertex backend has been seen to hang")
+                    help="passed to the backend (which does not honour it — see "
+                         "_prompt_with_deadline)")
+    ap.add_argument("--llm-deadline", type=int, default=2400,
+                    help="hard wall-clock cap on the whole agent session, "
+                         "enforced here rather than by the backend")
     ap.add_argument("--no-agent", action="store_true",
                     help="screen and build the top picks without an LLM")
     ap.add_argument("--picks", type=int, default=3,
@@ -333,7 +376,7 @@ def main():
                     f"not describe a plan without carrying it out, because a reply "
                     f"with no tool call ends the session.\n")
                 try:
-                    res = llm.prompt(task, tools=[tool])
+                    res = _prompt_with_deadline(llm, task, [tool], args.llm_deadline)
                     print("\n=== agent summary ===\n"
                           + str(getattr(res, "result", res))[-3000:])
                 except Exception as exc:
