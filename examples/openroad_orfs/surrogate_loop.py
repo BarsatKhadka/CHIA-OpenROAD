@@ -320,9 +320,27 @@ def main():
                     f"reports a stage (\"reached routing\") means it is working "
                     f"normally, not stuck; builds legitimately take this long.\n\n"
                     f"You have about {args.turns} turns. Every candidate branches from "
-                    f"a shared placement, so only clock-tree and later stages rebuild.\n")
+                    f"a shared placement, so only clock-tree and later stages rebuild.\n\n"
+                    f"Begin by calling `list_legal_knobs`. Act by calling tools — do "
+                    f"not describe a plan without carrying it out, because a reply "
+                    f"with no tool call ends the session.\n")
                 res = llm.prompt(task, tools=[tool])
                 print("\n=== agent summary ===\n" + str(getattr(res, "result", res))[-3000:])
+
+                # A reply carrying no tool call ends the client-side loop, so an
+                # agent that narrates its plan without acting finishes having
+                # done nothing. Observed once with gemini-2.5-pro, which stated
+                # it would call list_legal_knobs and then stopped. Nudge once
+                # rather than lose the run.
+                if store.stats()["proposed"] == 0:
+                    print("\n=== agent proposed nothing; nudging once ===", flush=True)
+                    res = llm.prompt(
+                        "You have not called any tool yet, so nothing has been built. "
+                        "Call list_legal_knobs and screen_candidates now, then propose "
+                        f"{int(ray.cluster_resources().get('orfs', 1))} candidates before "
+                        "polling any of them.", tools=[tool])
+                    print("\n=== after nudge ===\n"
+                          + str(getattr(res, "result", res))[-2000:])
 
                 # Drain anything the agent left in flight. It ends its turn when
                 # it runs out of things to say, not when the cluster is idle, so
