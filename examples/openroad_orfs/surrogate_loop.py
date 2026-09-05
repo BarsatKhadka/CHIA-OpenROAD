@@ -94,9 +94,63 @@ def build_screen(surrogate, state, policy, per_axis=6):
         usable = [p for p in preds if objective and objective in p.values]
     better = ORFS_METRICS.get(objective, "lower")
     usable.sort(key=lambda p: p.values[objective], reverse=(better == "higher"))
+    ranked = _break_ties([(p.knobs, p.values[objective]) for p in usable])
     return {"name": surrogate.name, "metric": objective, "better": better,
-            "cost_s": sum(p.cost_s for p in preds),
-            "ranked": [(p.knobs, p.values[objective]) for p in usable]}
+            "cost_s": sum(p.cost_s for p in preds), "ranked": ranked}
+
+
+def _break_ties(ranked, tol=1e-9):
+    """Within equally-predicted configurations, order by diversity.
+
+    A surrogate that ignores a knob predicts the same value for every setting of
+    it, and the top of the ranking becomes a block of ties differing only in
+    that knob. Measured on aes: SwiftCTS ignores CTS_BUF_DISTANCE, and the top
+    five predictions were identical to six figures — so the first three picks
+    were three configurations it could not tell apart. Two of them were built,
+    at ~3700 s each, and their actual wirelengths differed by 0.2%.
+
+    Reality was not wrong to be flat there; the waste is in spending the budget
+    confirming a tie. So inside each tie group, emit greedily by max-min
+    distance from what has already been emitted, which surfaces genuinely
+    different configurations first while preserving the ranking between groups.
+    """
+    if not ranked:
+        return ranked
+    keys = sorted({k for knobs, _ in ranked for k in knobs})
+    lo = {k: min(float(kn[k]) for kn, _ in ranked if k in kn) for k in keys}
+    hi = {k: max(float(kn[k]) for kn, _ in ranked if k in kn) for k in keys}
+
+    def dist(a, b):
+        total = 0.0
+        for k in keys:
+            if k not in a or k not in b:
+                continue
+            span = (hi[k] - lo[k]) or 1.0
+            total += ((float(a[k]) - float(b[k])) / span) ** 2
+        return total ** 0.5
+
+    out, group = [], []
+
+    def flush():
+        # Greedy max-min within the group, seeded by whatever is already out.
+        pending = list(group)
+        while pending:
+            if out:
+                nxt = max(pending, key=lambda g: min(dist(g[0], o[0]) for o in out))
+            else:
+                nxt = pending[0]
+            pending.remove(nxt)
+            out.append(nxt)
+        group.clear()
+
+    current = None
+    for knobs, value in ranked:
+        if current is None or abs(value - current) > tol * max(abs(value), 1.0):
+            flush()
+            current = value
+        group.append((knobs, value))
+    flush()
+    return out
 
 
 def fetch(node, base, remote, dest_dir):
