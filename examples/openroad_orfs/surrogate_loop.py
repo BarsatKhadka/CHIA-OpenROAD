@@ -346,7 +346,7 @@ def main():
                 # it runs out of things to say, not when the cluster is idle, so
                 # candidates it proposed and never polled would otherwise be
                 # thrown away after an hour of compute.
-                pending = list(tool._pending)
+                pending = tool.pending_ids()
                 if pending:
                     print(f"\n=== draining {len(pending)} unpolled candidate(s) ===",
                           flush=True)
