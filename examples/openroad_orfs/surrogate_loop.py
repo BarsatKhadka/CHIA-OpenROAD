@@ -267,6 +267,7 @@ def main():
             arm=f"agent+{args.model}" if not args.no_agent else "screen-only",
             branch_from=base, branch_through="place",
             screen=screen, measure_clock=True,
+            parallel_slots=int(ray.cluster_resources().get("orfs", 1)),
             task_options={"scheduling_strategy": __import__(
                 "ray.util.scheduling_strategies", fromlist=["x"]
             ).NodeAffinitySchedulingStrategy(
@@ -306,15 +307,37 @@ def main():
                 llm = VertexGeminiLLM(model=args.model, system_message=system,
                                       timeout_seconds=3600, max_tool_iterations=80)
                 task = open(os.path.join(HERE, "prompts", "explore_pd.md")).read()
-                task += (f"\n\n## This run\n\nDesign: {args.design} on {args.platform}. "
-                         f"A fast surrogate is available: call screen_candidates to see "
-                         f"which clock-tree configurations it predicts will do well. "
-                         f"Those are predictions — build the promising ones and check. "
-                         f"You have about {args.turns} turns. Every candidate branches "
-                         f"from a shared placement, so only clock-tree and later stages "
-                         f"are rebuilt.\n")
+                slots = int(ray.cluster_resources().get("orfs", 1))
+                task += (
+                    f"\n\n## This run\n\n"
+                    f"Design: {args.design} on {args.platform}.\n\n"
+                    f"A fast surrogate is available: `screen_candidates` returns "
+                    f"configurations it predicts will do well, in milliseconds. Those "
+                    f"are predictions; only a build settles anything.\n\n"
+                    f"**Timing matters here.** A build takes about an hour, and "
+                    f"{slots} run concurrently. So propose {slots} candidates first, "
+                    f"then poll them — do not propose one and wait for it. A poll that "
+                    f"reports a stage (\"reached routing\") means it is working "
+                    f"normally, not stuck; builds legitimately take this long.\n\n"
+                    f"You have about {args.turns} turns. Every candidate branches from "
+                    f"a shared placement, so only clock-tree and later stages rebuild.\n")
                 res = llm.prompt(task, tools=[tool])
                 print("\n=== agent summary ===\n" + str(getattr(res, "result", res))[-3000:])
+
+                # Drain anything the agent left in flight. It ends its turn when
+                # it runs out of things to say, not when the cluster is idle, so
+                # candidates it proposed and never polled would otherwise be
+                # thrown away after an hour of compute.
+                pending = list(tool._pending)
+                if pending:
+                    print(f"\n=== draining {len(pending)} unpolled candidate(s) ===",
+                          flush=True)
+                    for cid in pending:
+                        while True:
+                            status = tool.candidate_status(cid, max_wait_seconds=170)
+                            if "is running" not in status and "starting up" not in status:
+                                break
+                        print(f"    {status}", flush=True)
         finally:
             tool.stop()
 

@@ -29,6 +29,8 @@ it. ``propose_candidate`` therefore dispatches and returns an id;
 from __future__ import annotations
 
 import logging
+import os
+import uuid
 
 import ray
 from chia.base.tools.ChiaTool import ChiaTool
@@ -95,7 +97,13 @@ class ORFSAgentTool(ChiaTool):
               arm: str = "agent", gate: str | None = DEFAULT_GATE_STAGE,
               orfs_home: str | None = None, branch_from: str | None = None,
               branch_through: str = "place", screen: dict | None = None,
-              measure_clock: bool = False):
+              measure_clock: bool = False, parallel_slots: int = 1):
+        #: Distinguishes this run's work directories from a previous run's.
+        #: Without it, a fresh ledger restarts candidate ids at 1 while
+        #: /tmp/<root>/cand-00001 still holds a completed tree from last time —
+        #: make finds it up to date and "builds" it in a second, silently
+        #: recycling an old result as a new one. Observed exactly that.
+        self.run_token = uuid.uuid4().hex[:8]
         #: Shared prefix every candidate seeds from, if the loop built one.
         self.branch_from = branch_from
         self.branch_through = branch_through
@@ -110,6 +118,9 @@ class ORFSAgentTool(ChiaTool):
         #: its actor, and the actor has no import path for SwiftCTS.
         self.screen = screen
         self.measure_clock = measure_clock
+        #: How many candidates the cluster can build at once. The agent is told,
+        #: so it overlaps proposals instead of serialising them.
+        self.parallel_slots = parallel_slots
         self.policy = policy
         self.store = store
         self.failures = failures
@@ -169,14 +180,16 @@ class ORFSAgentTool(ChiaTool):
             self.store.reject(cid, f"duplicate of #{seen.id}")
             return f"candidate {cid} NOT RUN: identical to #{seen.id}, which built. {seen.one_line()}"
 
-        ref = _run_candidate.remote(f"{self.work_root}/cand-{cid:05d}",
+        ref = _run_candidate.remote(f"{self.work_root}/{self.run_token}-cand-{cid:05d}",
                                     self.design_config, knobs, self.gate,
                                     "finish", self.orfs_home,
                                     self.branch_from, self.branch_through,
                                     self.measure_clock)
         self._pending[cid] = ref
-        return (f"candidate {cid} started with {knobs}. "
-                f"Poll candidate_status({cid}); expect a few minutes.")
+        return (f"candidate {cid} started with {knobs}. A full build takes "
+                f"around an hour. Up to {self.parallel_slots} candidates run at "
+                f"once, so propose the others you want now and poll them all "
+                f"afterwards rather than waiting on this one.")
 
     def candidate_status(self, candidate_id: int, max_wait_seconds: int = 60) -> str:
         """Check a candidate, optionally waiting for it.
@@ -194,7 +207,13 @@ class ORFSAgentTool(ChiaTool):
         wait = max(0, min(int(max_wait_seconds), MAX_POLL_SECONDS))
         ready, _ = ray.wait([ref], timeout=wait)
         if not ready:
-            return f"candidate {candidate_id} still running; poll again"
+            # Report what stage it has reached, not just that it is alive.
+            # "still running" repeated twenty times reads as a hung system: an
+            # agent given only that concluded the build system was broken and
+            # stopped. Progress reads as progress.
+            return (f"candidate {candidate_id} {self._progress(candidate_id)}. "
+                    f"A full build takes around an hour — propose other "
+                    f"candidates while this one runs rather than waiting on it.")
 
         del self._pending[candidate_id]
         try:
@@ -207,6 +226,19 @@ class ORFSAgentTool(ChiaTool):
         for r in results:
             self.failures.record(r)
         return self.store.get(candidate_id).one_line()
+
+    def _progress(self, cid: int) -> str:
+        """Which stage a running candidate has reached, from its checkpoints."""
+        import glob
+        work = f"{self.work_root}/{self.run_token}-cand-{cid:05d}"
+        found = glob.glob(os.path.join(work, "results", "*", "*", "*", "*.odb"))
+        if not found:
+            return "is starting up"
+        reached = max(os.path.basename(f) for f in found)
+        stage = {"1": "synthesis", "2": "floorplan", "3": "placement",
+                 "4": "clock tree synthesis", "5": "routing",
+                 "6": "finishing"}.get(reached[0], reached)
+        return f"is running: reached {stage} ({reached})"
 
     def list_candidates(self, limit: int = 20) -> str:
         """Everything tried so far, newest first, with outcomes."""
