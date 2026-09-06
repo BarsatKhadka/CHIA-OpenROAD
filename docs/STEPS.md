@@ -163,7 +163,7 @@ straight out of `6_report.json`.
 
 ---
 
-## Step 7 — The loop  ← NEXT
+## Step 7 — The loop  ✅ DONE (see 06-results.md)
 
 **Writes.** `examples/openroad_orfs/orfs_loop.py`.
 
