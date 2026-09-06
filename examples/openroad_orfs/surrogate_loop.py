@@ -33,7 +33,7 @@ from chia_openroad.failure_log import FailureLog
 from chia_openroad.knob_policy import KnobPolicy
 from chia_openroad.openroad import OpenROADNode
 from chia_openroad.orfs_tools import ORFSAgentTool
-from chia_openroad.agent import TurnAgent
+from chia_openroad.iterate import run_iterations
 from chia_openroad.surrogate import DesignState, Scorecard, conformance_check
 from chia_openroad.surrogates.swiftcts import SwiftCTSEvaluator
 
@@ -309,54 +309,46 @@ def main():
                 print("\n=== screen accuracy ===")
                 print(card.summary())
             else:
-                system = ("You are an expert physical-design engineer tuning a clock "
-                          "tree. Act only through the tools. Never report a result you "
-                          "have not seen returned by candidate_status.")
+                system = ("You are an expert physical-design engineer tuning a "
+                          "clock tree. Be concrete and brief. Never claim a result "
+                          "you have not been shown.")
+
+                # Programmatic loop, short agent calls, memory in the ledger —
+                # the shape CHIA's own 202-iteration gem5 study uses (paper
+                # Fig. 3). The agent decides what to build; Python builds it.
+                # Nothing waits on a model across an hour-long flow.
+                from google import genai
+                client = genai.Client(
+                    vertexai=True, project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+                    location=os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"))
+
                 slots = int(ray.cluster_resources().get("orfs", 1))
-                task = open(os.path.join(HERE, "prompts", "explore_pd.md")).read()
-                task += (
-                    f"\n\n## This run\n\n"
-                    f"Design: {args.design} on {args.platform}.\n\n"
-                    f"`screen_candidates` returns configurations a fast surrogate "
-                    f"predicts will do well, in milliseconds. Those are predictions; "
-                    f"only a build settles anything.\n\n"
-                    f"**A build takes about an hour and {slots} run concurrently.** "
-                    f"Propose {slots} candidates first, then poll them. A poll waits "
-                    f"for the build, so one call per candidate is enough — you do not "
-                    f"need to poll repeatedly.\n\n"
-                    f"The screen's top entries often tie, because the model ignores "
-                    f"knobs that genuinely do not move its objective. Ties are not "
-                    f"choices — go further down the ranking for configurations that "
-                    f"actually differ.\n\n"
-                    f"Every candidate branches from a shared placement, so only "
-                    f"clock-tree and later stages rebuild.\n")
 
-                # Our own turn-by-turn loop rather than llm.prompt(): see
-                # chia_openroad/agent.py for why. In short, the wrapped loop
-                # holds one blocking call across hour-long tools, ignores its
-                # own timeout, and keeps tool state on the far side of a pickle
-                # boundary.
-                agent = TurnAgent(
-                    tool, model=args.model,
-                    system=system,
-                    request_timeout=args.llm_timeout,
-                    transcript_path=os.path.join(HERE, f"transcript_{args.design}.json"))
-                if args.resume:
-                    agent.resume()
-                summary = agent.run(task, max_turns=args.turns * 6,
-                                    deadline_s=args.llm_deadline)
-                print("\n=== agent summary ===\n" + (summary or "(no closing text)"))
-
-                pending = tool.pending_ids()
-                if pending:
-                    print(f"\n=== draining {len(pending)} unpolled candidate(s) ===",
-                          flush=True)
-                    for cid in pending:
+                def build(proposals):
+                    """Dispatch every proposal at once, then collect them all."""
+                    ids = []
+                    for knobs in proposals:
+                        reply = tool.propose_candidate(dict(knobs))
+                        print(f"    {reply}", flush=True)
+                        if "started" in reply:
+                            ids.append(int(reply.split()[1]))
+                    for cid in ids:
                         while True:
-                            status = tool.candidate_status(cid, max_wait_seconds=170)
+                            status = tool.candidate_status(cid, max_wait_seconds=3000)
                             if "is running" not in status and "starting up" not in status:
                                 break
                         print(f"    {status}", flush=True)
+
+                outcome = run_iterations(
+                    client=client, model=args.model, system=system,
+                    store=store, failures=failures, screen=screen, policy=policy,
+                    build=build, iterations=args.turns,
+                    per_iteration=min(slots, args.picks),
+                    transcript_path=os.path.join(HERE, f"transcript_{args.design}.json"))
+                print(f"\n=== agent ran {outcome['iterations']} iteration(s) ===")
+                for t in outcome["transcript"]:
+                    print(f"\n-- iteration {t['iteration']} --")
+                    print(t["reply"][:900])
         finally:
             tool.stop()
 
