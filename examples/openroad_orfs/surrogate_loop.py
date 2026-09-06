@@ -26,7 +26,6 @@ import argparse, json, logging, os, sys, time
 
 import ray
 from chia.base.ChiaFunction import get
-from chia.models.vertex import VertexGeminiLLM
 
 import chia_openroad
 from chia_openroad.candidate_store import CandidateStore
@@ -34,6 +33,7 @@ from chia_openroad.failure_log import FailureLog
 from chia_openroad.knob_policy import KnobPolicy
 from chia_openroad.openroad import OpenROADNode
 from chia_openroad.orfs_tools import ORFSAgentTool
+from chia_openroad.agent import TurnAgent
 from chia_openroad.surrogate import DesignState, Scorecard, conformance_check
 from chia_openroad.surrogates.swiftcts import SwiftCTSEvaluator
 
@@ -52,45 +52,6 @@ def load_policy(path):
                 if v.get("low") is not None}
     log.info("calibrated ranges for %d knob(s)", len(measured))
     return policy.with_calibration(measured)
-
-
-class AgentTimeout(Exception):
-    pass
-
-
-def _prompt_with_deadline(llm, task, tools, deadline_s):
-    """Run the agent with a wall-clock cap we enforce ourselves.
-
-    VertexGeminiLLM takes a `timeout_seconds`, but it does not bound the call:
-    observed twice, a session set to 420 s sat on an open generateContent
-    request for over two hours while the ORFS flow underneath completed
-    normally and its result went uncollected.
-
-    The agent runs on a daemon thread so a hang cannot keep the process alive.
-    Whatever it managed before the deadline is already in the ledger, and the
-    caller drains the in-flight candidates either way — a build that reached
-    GDS is a real result no matter what the model did afterwards.
-    """
-    import threading
-
-    box = {}
-
-    def go():
-        try:
-            box["result"] = llm.prompt(task, tools=tools)
-        except BaseException as exc:       # noqa: BLE001 - reported, not swallowed
-            box["error"] = exc
-
-    thread = threading.Thread(target=go, daemon=True)
-    thread.start()
-    thread.join(deadline_s)
-    if thread.is_alive():
-        raise AgentTimeout(
-            f"no response within {deadline_s}s — abandoning the agent session "
-            f"and collecting whatever it started")
-    if "error" in box:
-        raise box["error"]
-    return box["result"]
 
 
 def build_screen(surrogate, state, policy, per_axis=6):
@@ -218,9 +179,8 @@ def main():
     ap.add_argument("--swiftcts-dir", default=os.environ.get(
         "SWIFTCTS_DIR", os.path.expanduser("~/SwiftCTS/SwiftCTS")))
     ap.add_argument("--k-shot", type=int, default=1)
-    ap.add_argument("--llm-timeout", type=int, default=600,
-                    help="passed to the backend (which does not honour it — see "
-                         "_prompt_with_deadline)")
+    ap.add_argument("--llm-timeout", type=int, default=180,
+                    help="per-request HTTP timeout, enforced by our own client")
     ap.add_argument("--llm-deadline", type=int, default=2400,
                     help="hard wall-clock cap on the whole agent session, "
                          "enforced here rather than by the backend")
@@ -349,62 +309,39 @@ def main():
                 system = ("You are an expert physical-design engineer tuning a clock "
                           "tree. Act only through the tools. Never report a result you "
                           "have not seen returned by candidate_status.")
-                # A short timeout on purpose. VertexGeminiLLM is the backend
-                # CHIA marks experimental, and an observed run sat on an open
-                # generateContent call for over an hour past its own 3600 s
-                # timeout while a completed candidate went unrecorded. Failing
-                # fast and draining beats hanging.
-                llm = VertexGeminiLLM(model=args.model, system_message=system,
-                                      timeout_seconds=args.llm_timeout,
-                                      retries=2, max_tool_iterations=80)
-                task = open(os.path.join(HERE, "prompts", "explore_pd.md")).read()
                 slots = int(ray.cluster_resources().get("orfs", 1))
+                task = open(os.path.join(HERE, "prompts", "explore_pd.md")).read()
                 task += (
                     f"\n\n## This run\n\n"
                     f"Design: {args.design} on {args.platform}.\n\n"
-                    f"A fast surrogate is available: `screen_candidates` returns "
-                    f"configurations it predicts will do well, in milliseconds. Those "
-                    f"are predictions; only a build settles anything.\n\n"
-                    f"**Timing matters here.** A build takes about an hour, and "
-                    f"{slots} run concurrently. So propose {slots} candidates first, "
-                    f"then poll them — do not propose one and wait for it. A poll that "
-                    f"reports a stage (\"reached routing\") means it is working "
-                    f"normally, not stuck; builds legitimately take this long.\n\n"
-                    f"You have about {args.turns} turns. Every candidate branches from "
-                    f"a shared placement, so only clock-tree and later stages rebuild.\n\n"
-                    f"Begin by calling `list_legal_knobs`. Act by calling tools — do "
-                    f"not describe a plan without carrying it out, because a reply "
-                    f"with no tool call ends the session.\n")
-                try:
-                    res = _prompt_with_deadline(llm, task, [tool], args.llm_deadline)
-                    print("\n=== agent summary ===\n"
-                          + str(getattr(res, "result", res))[-3000:])
-                except Exception as exc:
-                    # Whatever the agent did before failing is still worth
-                    # collecting: a candidate that reached GDS is a real result
-                    # regardless of what the model did afterwards.
-                    print(f"\n=== agent errored: {type(exc).__name__}: {exc} ===",
-                          flush=True)
+                    f"`screen_candidates` returns configurations a fast surrogate "
+                    f"predicts will do well, in milliseconds. Those are predictions; "
+                    f"only a build settles anything.\n\n"
+                    f"**A build takes about an hour and {slots} run concurrently.** "
+                    f"Propose {slots} candidates before polling any of them. A poll "
+                    f"reporting a stage (\"reached routing\") means it is working "
+                    f"normally.\n\n"
+                    f"The screen's top entries often tie, because the model ignores "
+                    f"knobs that genuinely do not move its objective. Ties are not "
+                    f"choices — go further down the ranking for configurations that "
+                    f"actually differ.\n\n"
+                    f"Every candidate branches from a shared placement, so only "
+                    f"clock-tree and later stages rebuild.\n")
 
-                # A reply carrying no tool call ends the client-side loop, so an
-                # agent that narrates its plan without acting finishes having
-                # done nothing. Observed once with gemini-2.5-pro, which stated
-                # it would call list_legal_knobs and then stopped. Nudge once
-                # rather than lose the run.
-                if store.stats()["proposed"] == 0:
-                    print("\n=== agent proposed nothing; nudging once ===", flush=True)
-                    res = llm.prompt(
-                        "You have not called any tool yet, so nothing has been built. "
-                        "Call list_legal_knobs and screen_candidates now, then propose "
-                        f"{int(ray.cluster_resources().get('orfs', 1))} candidates before "
-                        "polling any of them.", tools=[tool])
-                    print("\n=== after nudge ===\n"
-                          + str(getattr(res, "result", res))[-2000:])
+                # Our own turn-by-turn loop rather than llm.prompt(): see
+                # chia_openroad/agent.py for why. In short, the wrapped loop
+                # holds one blocking call across hour-long tools, ignores its
+                # own timeout, and keeps tool state on the far side of a pickle
+                # boundary.
+                agent = TurnAgent(
+                    tool, model=args.model,
+                    system=system,
+                    request_timeout=args.llm_timeout,
+                    transcript_path=os.path.join(HERE, f"transcript_{args.design}.json"))
+                summary = agent.run(task, max_turns=args.turns * 6,
+                                    deadline_s=args.llm_deadline)
+                print("\n=== agent summary ===\n" + (summary or "(no closing text)"))
 
-                # Drain anything the agent left in flight. It ends its turn when
-                # it runs out of things to say, not when the cluster is idle, so
-                # candidates it proposed and never polled would otherwise be
-                # thrown away after an hour of compute.
                 pending = tool.pending_ids()
                 if pending:
                     print(f"\n=== draining {len(pending)} unpolled candidate(s) ===",
