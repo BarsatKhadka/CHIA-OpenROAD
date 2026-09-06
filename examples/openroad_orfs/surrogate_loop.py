@@ -327,8 +327,10 @@ def main():
                 def build(proposals):
                     """Dispatch every proposal at once, then collect them all."""
                     ids = []
-                    for knobs in proposals:
-                        reply = tool.propose_candidate(dict(knobs))
+                    for item in proposals:
+                        knobs = item["knobs"] if isinstance(item, dict) and "knobs" in item else item
+                        parent = item.get("parent") or 0 if isinstance(item, dict) else 0
+                        reply = tool.propose_candidate(dict(knobs), parent_id=parent)
                         print(f"    {reply}", flush=True)
                         if "started" in reply:
                             ids.append(int(reply.split()[1]))

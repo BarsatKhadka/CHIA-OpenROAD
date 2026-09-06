@@ -89,6 +89,9 @@ def _run_candidate(work_home: str, design_config: str, knobs: dict,
             # saves nothing at all.
             get(node.branch.chia_remote(branch_from, work_home, design_config,
                                         through_stage=branch_through, **kw))
+            # Note: branch_through bounds what is copied. Copying a finished
+            # parent wholesale would be wrong — the later stages belong to the
+            # parent's knobs, and invalidation would have to delete them again.
 
         def run(stage, **inner):
             r = get(node.run_stage.chia_remote(stage, **inner, **kw))
@@ -190,18 +193,24 @@ class ORFSAgentTool(ChiaTool):
         """
         return self.policy.describe_for_agent()
 
-    def propose_candidate(self, knobs: dict) -> str:
+    def propose_candidate(self, knobs: dict, parent_id: int = 0) -> str:
         """Propose one configuration and start building it.
 
-        Returns immediately with a candidate id; the flow takes minutes. Poll
-        with candidate_status(id).
+        Returns immediately with a candidate id; the flow takes about an hour.
 
         Args:
             knobs: ORFS knob names to values, e.g. {"CTS_CLUSTER_SIZE": 20}.
-                Anything you omit keeps this design's default. Only knobs from
-                list_legal_knobs() are accepted.
+                These are the FULL configuration, not a delta — anything you
+                omit takes this design's default, whatever the parent used.
+            parent_id: build starting from that candidate's design state
+                instead of from the shared placement. 0 means start from the
+                shared placement. Use it to say "this is a variation on #14";
+                it records the lineage so the exploration is a visible tree.
+                Note it rarely saves time on this design — routing dominates,
+                and almost any knob change forces a full re-route.
         """
-        cid = self.store.propose(knobs, arm=self.arm)
+        parent = int(parent_id) or None
+        cid = self.store.propose(knobs, arm=self.arm, parent_id=parent)
 
         ok, reason = self.policy.check(knobs)
         if not ok:
@@ -220,10 +229,18 @@ class ORFSAgentTool(ChiaTool):
             self.store.reject(cid, f"duplicate of #{seen.id}")
             return f"candidate {cid} NOT RUN: identical to #{seen.id}, which built. {seen.one_line()}"
 
+        # Branch from the named parent's tree when given one, else the shared
+        # placement. Stage invalidation then discards whatever the new knobs
+        # made stale, so an "early" knob change simply rebuilds more.
+        seed = self.branch_from
+        if parent:
+            prior = self.store.get(parent)
+            if prior and prior.status == "built":
+                seed = f"{self.work_root}/{self.run_token}-cand-{parent:05d}"
         ref = _run_candidate.remote(f"{self.work_root}/{self.run_token}-cand-{cid:05d}",
                                     self.design_config, knobs, self.gate,
                                     "finish", self.orfs_home,
-                                    self.branch_from, self.branch_through,
+                                    seed, self.branch_through,
                                     self.measure_clock, self.num_cores)
         self._pending[cid] = ref
         return (f"candidate {cid} started with {knobs}. A full build takes "

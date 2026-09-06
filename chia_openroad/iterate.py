@@ -39,17 +39,19 @@ def render_state(store, screen, failures, top_n: int = 12) -> str:
     lines = []
     built = [c for c in store.list(status="built", limit=200)]
     if built:
-        lines.append("## What has been built, and what it measured\n")
-        lines.append("| knobs | worst_slack | clock_skew | clock_wl_um | power_W |")
-        lines.append("|---|---|---|---|---|")
-        for c in built:
+        lines.append("## Everything built so far (id, and what it was derived from)\n")
+        lines.append("| id | from | knobs | worst_slack | clock_skew | clock_wl_um | power_W |")
+        lines.append("|---|---|---|---|---|---|---|")
+        for c in sorted(built, key=lambda x: x.id):
             m = c.metrics or {}
             knobs = ", ".join(f"{k}={v}" for k, v in sorted(c.knobs.items())) or "(defaults)"
             def g(k):
                 v = m.get(k)
                 return f"{v:.5g}" if isinstance(v, (int, float)) else "-"
-            lines.append(f"| {knobs} | {g('worst_slack')} | {g('clock_skew_setup')} "
-                         f"| {g('clock_wirelength_um')} | {g('power_total')} |")
+            parent = f"#{c.parent_id}" if c.parent_id else "base"
+            lines.append(f"| #{c.id} | {parent} | {knobs} | {g('worst_slack')} "
+                         f"| {g('clock_skew_setup')} | {g('clock_wirelength_um')} "
+                         f"| {g('power_total')} |")
     else:
         lines.append("## Nothing has been built yet.\n")
 
@@ -88,8 +90,14 @@ def parse_proposals(text: str, policy, want: int) -> tuple[list[dict], list[str]
             continue
         if not isinstance(raw, dict) or not raw:
             continue
-        knobs = {}
+        knobs, parent = {}, None
         for k, v in raw.items():
+            if str(k).lower() in ("from", "parent", "parent_id"):
+                try:
+                    parent = int(v)
+                except (TypeError, ValueError):
+                    pass
+                continue
             if isinstance(v, (int, float)):
                 knobs[str(k)] = v
             elif isinstance(v, str):
@@ -107,7 +115,7 @@ def parse_proposals(text: str, policy, want: int) -> tuple[list[dict], list[str]
         if key in seen:
             continue
         seen.add(key)
-        accepted.append(knobs)
+        accepted.append({"knobs": knobs, "parent": parent})
         if len(accepted) >= want:
             break
     return accepted, rejected
@@ -140,15 +148,26 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
         state = render_state(store, screen, failures)
         prompt = (
             f"{state}\n\n## Your task, iteration {i + 1} of {iterations}\n\n"
-            f"Propose exactly {per_iteration} clock-tree configurations to build "
-            f"next. They run in parallel, so make them genuinely different from "
-            f"each other and from what has already been built.\n\n"
+            f"Propose exactly {per_iteration} configurations to build next. They "
+            f"run in parallel, so make them genuinely different from each other "
+            f"and from everything already built.\n\n"
             f"Optimise {objective} ({better} is better), without inflating area "
             f"or power.\n\n"
+            f"**Every knob below is yours to set** — floorplan, placement and "
+            f"clock tree alike, not only the clock-tree ones. A knob you leave "
+            f"out takes the design's own default.\n\n"
+            f"**Each configuration is a full specification, and each costs about "
+            f"an hour** whichever knob you change: routing dominates this design "
+            f"and almost any change forces a full re-route. So the question is "
+            f"not how to make an experiment cheap, it is which experiments are "
+            f"worth an hour. You have {iterations - i} iteration(s) left.\n\n"
+            f"You may derive a configuration from an earlier one by adding "
+            f'`"from": <id>` to its JSON. That records the lineage so the search '
+            f"reads as a tree; it does not change the cost.\n\n"
             f"Legal knobs and ranges:\n{policy.describe_for_agent()}\n\n"
             f"Reply with one JSON object per line and nothing else, e.g.\n"
-            f'{{"CTS_CLUSTER_SIZE": 18, "CTS_CLUSTER_DIAMETER": 45, "CTS_BUF_DISTANCE": 90}}\n'
-            f"Briefly state your reasoning first, then the JSON lines.")
+            f'{{"CORE_UTILIZATION": 40, "CTS_CLUSTER_SIZE": 18, "from": 14}}\n'
+            f"State your reasoning briefly first, then the JSON lines.")
 
         started = time.monotonic()
         try:

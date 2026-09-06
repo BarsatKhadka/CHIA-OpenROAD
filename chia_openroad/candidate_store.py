@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS candidates (
     arm           TEXT NOT NULL,      -- which evaluation arm proposed it
     design        TEXT,
     platform      TEXT,
+    parent_id     INTEGER,            -- which candidate this was derived from
     knobs         TEXT NOT NULL,      -- json
     knob_key      TEXT NOT NULL,      -- canonical form, for dedup
     status        TEXT NOT NULL,      -- proposed|rejected|running|built|failed
@@ -61,6 +62,10 @@ class Candidate:
     metrics: dict | None = None
     failure: dict | None = None
     reject_reason: str | None = None
+    #: The candidate this was derived from — None means it started from the
+    #: shared placement. Makes the exploration a visible tree rather than a
+    #: flat list, so the agent can say "vary this, starting from #14".
+    parent_id: int | None = None
 
     def one_line(self) -> str:
         knobs = ", ".join(f"{k}={v}" for k, v in sorted(self.knobs.items())) or "(defaults)"
@@ -101,12 +106,13 @@ class CandidateStore:
 
     # -- writing ----------------------------------------------------------
     def propose(self, knobs: dict, *, arm: str = "agent", design: str = "",
-                platform: str = "") -> int:
+                platform: str = "", parent_id: int | None = None) -> int:
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO candidates (arm, design, platform, knobs, knob_key, status)"
-                " VALUES (?,?,?,?,?,'proposed')",
-                (arm, design, platform, json.dumps(knobs, sort_keys=True), knob_key(knobs)))
+                "INSERT INTO candidates (arm, design, platform, knobs, knob_key,"
+                " status, parent_id) VALUES (?,?,?,?,?,'proposed',?)",
+                (arm, design, platform, json.dumps(knobs, sort_keys=True),
+                 knob_key(knobs), parent_id))
             self._conn.commit()
             return cur.lastrowid
 
@@ -150,7 +156,8 @@ class CandidateStore:
             tool_runs=r["tool_runs"] or 0,
             metrics=json.loads(r["metrics"]) if r["metrics"] else None,
             failure=json.loads(r["failure"]) if r["failure"] else None,
-            reject_reason=r["reject_reason"])
+            reject_reason=r["reject_reason"],
+            parent_id=r["parent_id"] if "parent_id" in r.keys() else None)
 
     def get(self, cid: int) -> Candidate | None:
         r = self._conn.execute("SELECT * FROM candidates WHERE id=?", (cid,)).fetchone()
