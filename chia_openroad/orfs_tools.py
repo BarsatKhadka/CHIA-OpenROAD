@@ -65,44 +65,6 @@ MAX_POLL_SECONDS_LOCAL = 5400
 
 
 @ray.remote(num_cpus=0)
-class _PendingRegistry:
-    """Shared record of in-flight candidates: candidate id -> ObjectRef.
-
-    A ChiaTool is pickled to reach its MCP server actor, so the tool exists as
-    two independent copies: the agent's calls mutate the actor's, while the
-    driver holds its own. In-memory state does not propagate between them — the
-    SQLite ledger survives only because it is file-backed.
-
-    That cost a whole run: the agent proposed four candidates, the refs landed
-    in the actor's copy, and the driver's drain saw an empty dict and exited,
-    orphaning four builds mid-route. A named detached actor gives both copies
-    the same view.
-    """
-
-    def __init__(self):
-        self._refs: dict = {}
-
-    def put(self, cid: int, ref) -> None:
-        self._refs[int(cid)] = ref
-
-    def get(self, cid: int):
-        return self._refs.get(int(cid))
-
-    def pop(self, cid: int):
-        return self._refs.pop(int(cid), None)
-
-    def ids(self) -> list:
-        return sorted(self._refs)
-
-
-def _registry(name: str):
-    """The registry for one tool instance, created on first use."""
-    return _PendingRegistry.options(
-        name=f"chia_orfs_pending_{name}", get_if_exists=True,
-        lifetime="detached", namespace="chia_openroad").remote()
-
-
-@ray.remote(num_cpus=0)
 def _run_candidate(work_home: str, design_config: str, knobs: dict,
                    gate: str | None, target: str, orfs_home: str | None,
                    branch_from: str | None = None,
