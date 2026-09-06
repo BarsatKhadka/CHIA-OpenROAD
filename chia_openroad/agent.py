@@ -97,6 +97,26 @@ class TurnAgent:
                              if hasattr(tool, n)]
 
     # -- persistence ------------------------------------------------------
+    def resume(self) -> int:
+        """Reload a persisted transcript. Returns how many turns were restored.
+
+        This is the memory the wrapped backend has no equivalent for: the CLI
+        backends get it from `--resume <session_id>`, the Vertex one from
+        nothing. With it, a driver that dies mid-run picks up where it left off
+        instead of paying for the whole exploration again.
+        """
+        if not self.transcript_path or not os.path.exists(self.transcript_path):
+            return 0
+        types = self._types
+        with open(self.transcript_path) as f:
+            plain = json.load(f)
+        self.history = [
+            types.Content(role=turn["role"],
+                          parts=[types.Part(text=t) for t in turn["parts"]])
+            for turn in plain if turn.get("parts")]
+        logger.info("resumed %d turn(s) from %s", len(self.history),
+                    self.transcript_path)
+        return len(self.history)
     def save(self) -> None:
         """Persist the transcript so a crashed run resumes rather than restarts."""
         if not self.transcript_path:
@@ -129,8 +149,14 @@ class TurnAgent:
         learned survives the loop ending for any reason.
         """
         types = self._types
-        self.history.append(types.Content(role="user",
-                                          parts=[types.Part(text=task)]))
+        if not self.history:
+            self.history.append(types.Content(role="user",
+                                              parts=[types.Part(text=task)]))
+        else:
+            self.history.append(types.Content(
+                role="user",
+                parts=[types.Part(text="Continue from where you left off. "
+                                       "Check any candidates you had started.")]))
         started = time.monotonic()
         final = ""
 
@@ -164,6 +190,14 @@ class TurnAgent:
                 # that merely narrated its plan ended a whole session.
                 break
 
+            # Every response for one call-turn goes in a SINGLE Content whose
+            # part count matches the call count. Appending them as separate
+            # messages fails with
+            #   400 INVALID_ARGUMENT: Please ensure that the number of function
+            #   response parts is equal to the number of function call parts
+            # which is easy to hit, because a model routinely asks for two
+            # things at once (here: list_legal_knobs and past_failures).
+            parts = []
             for call in calls:
                 name = call.name
                 args = dict(call.args or {})
@@ -174,10 +208,9 @@ class TurnAgent:
                 except Exception as exc:
                     result = f"{type(exc).__name__}: {exc}"
                     logger.error("tool %s failed: %s", name, exc)
-                self.history.append(types.Content(
-                    role="user",
-                    parts=[types.Part.from_function_response(
-                        name=name, response={"result": str(result)[:8000]})]))
+                parts.append(types.Part.from_function_response(
+                    name=name, response={"result": str(result)[:8000]}))
+            self.history.append(types.Content(role="user", parts=parts))
             self.save()
 
         return final

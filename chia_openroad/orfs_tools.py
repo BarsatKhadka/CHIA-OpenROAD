@@ -42,8 +42,15 @@ from chia_openroad.openroad import DEFAULT_GATE_STAGE, OpenROADNode, run_flow
 
 logger = logging.getLogger(__name__)
 
-#: Keep a poll well inside the MCP HTTP timeout (timing_opt suggests <~200 s).
+#: Cap on a single poll when the tool is reached over MCP, where the HTTP
+#: round trip must not stall (timing_opt suggests <~200 s).
 MAX_POLL_SECONDS = 180
+
+#: Cap when the tool is called in-process by a loop we drive ourselves. There
+#: is no HTTP round trip to hold open, so a poll can simply wait for the build
+#: instead of returning "still running" twenty times — which is what led one
+#: agent to conclude the build system was broken and stop.
+MAX_POLL_SECONDS_LOCAL = 5400
 
 
 @ray.remote(num_cpus=0)
@@ -135,7 +142,8 @@ class ORFSAgentTool(ChiaTool):
               arm: str = "agent", gate: str | None = DEFAULT_GATE_STAGE,
               orfs_home: str | None = None, branch_from: str | None = None,
               branch_through: str = "place", screen: dict | None = None,
-              measure_clock: bool = False, parallel_slots: int = 1):
+              measure_clock: bool = False, parallel_slots: int = 1,
+              local_calls: bool = False):
         #: Distinguishes this run's work directories from a previous run's.
         #: Without it, a fresh ledger restarts candidate ids at 1 while
         #: /tmp/<root>/cand-00001 still holds a completed tree from last time —
@@ -156,6 +164,9 @@ class ORFSAgentTool(ChiaTool):
         #: its actor, and the actor has no import path for SwiftCTS.
         self.screen = screen
         self.measure_clock = measure_clock
+        #: True when a driver calls these methods directly rather than over
+        #: MCP, which removes the HTTP timeout constraint on polling.
+        self.local_calls = local_calls
         #: How many candidates the cluster can build at once. The agent is told,
         #: so it overlaps proposals instead of serialising them.
         self.parallel_slots = parallel_slots
@@ -241,7 +252,8 @@ class ORFSAgentTool(ChiaTool):
             existing = self.store.get(candidate_id)
             return existing.one_line() if existing else f"no candidate {candidate_id}"
 
-        wait = max(0, min(int(max_wait_seconds), MAX_POLL_SECONDS))
+        ceiling = MAX_POLL_SECONDS_LOCAL if self.local_calls else MAX_POLL_SECONDS
+        wait = max(0, min(int(max_wait_seconds), ceiling))
         ready, _ = ray.wait([ref], timeout=wait)
         if not ready:
             # Report what stage it has reached, not just that it is alive.

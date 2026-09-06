@@ -181,6 +181,8 @@ def main():
     ap.add_argument("--k-shot", type=int, default=1)
     ap.add_argument("--llm-timeout", type=int, default=180,
                     help="per-request HTTP timeout, enforced by our own client")
+    ap.add_argument("--resume", action="store_true",
+                    help="continue a persisted transcript instead of starting over")
     ap.add_argument("--llm-deadline", type=int, default=2400,
                     help="hard wall-clock cap on the whole agent session, "
                          "enforced here rather than by the backend")
@@ -273,6 +275,7 @@ def main():
             branch_from=base, branch_through="place",
             screen=screen, measure_clock=True,
             parallel_slots=int(ray.cluster_resources().get("orfs", 1)),
+            local_calls=not args.no_agent,
             task_options={"scheduling_strategy": __import__(
                 "ray.util.scheduling_strategies", fromlist=["x"]
             ).NodeAffinitySchedulingStrategy(
@@ -318,9 +321,9 @@ def main():
                     f"predicts will do well, in milliseconds. Those are predictions; "
                     f"only a build settles anything.\n\n"
                     f"**A build takes about an hour and {slots} run concurrently.** "
-                    f"Propose {slots} candidates before polling any of them. A poll "
-                    f"reporting a stage (\"reached routing\") means it is working "
-                    f"normally.\n\n"
+                    f"Propose {slots} candidates first, then poll them. A poll waits "
+                    f"for the build, so one call per candidate is enough — you do not "
+                    f"need to poll repeatedly.\n\n"
                     f"The screen's top entries often tie, because the model ignores "
                     f"knobs that genuinely do not move its objective. Ties are not "
                     f"choices — go further down the ranking for configurations that "
@@ -338,6 +341,8 @@ def main():
                     system=system,
                     request_timeout=args.llm_timeout,
                     transcript_path=os.path.join(HERE, f"transcript_{args.design}.json"))
+                if args.resume:
+                    agent.resume()
                 summary = agent.run(task, max_turns=args.turns * 6,
                                     deadline_s=args.llm_deadline)
                 print("\n=== agent summary ===\n" + (summary or "(no closing text)"))
