@@ -69,7 +69,8 @@ def _run_candidate(work_home: str, design_config: str, knobs: dict,
                    gate: str | None, target: str, orfs_home: str | None,
                    branch_from: str | None = None,
                    branch_through: str = "place",
-                   measure_clock: bool = False):
+                   measure_clock: bool = False,
+                   num_cores: int | None = None):
     """Driver-side orchestrator for one candidate.
 
     ``num_cpus=0`` because this holds no resources itself — it reserves an
@@ -78,6 +79,8 @@ def _run_candidate(work_home: str, design_config: str, knobs: dict,
     """
     from chia.base.ChiaFunction import get
     kw = {"orfs_home": orfs_home} if orfs_home else {}
+    if num_cores:
+        kw["num_cores"] = num_cores
     with OpenROADNode() as node:
         if branch_from:
             # Seed from the shared prefix so make resumes at the first stage
@@ -147,6 +150,12 @@ class ORFSAgentTool(ChiaTool):
         #: its actor, and the actor has no import path for SwiftCTS.
         self.screen = screen
         self.measure_clock = measure_clock
+        #: Threads each candidate may use. One `orfs` slot is about one core,
+        #: so a candidate must not claim the whole machine: three candidates
+        #: each taking NUM_CORES=4 on a 4-core box drove load to 12.9 and made
+        #: every one of them roughly three times slower for no gain.
+        import os as _os
+        self.num_cores = max(1, (_os.cpu_count() or 1) // max(parallel_slots, 1))
         #: True when a driver calls these methods directly rather than over
         #: MCP, which removes the HTTP timeout constraint on polling.
         self.local_calls = local_calls
@@ -215,7 +224,7 @@ class ORFSAgentTool(ChiaTool):
                                     self.design_config, knobs, self.gate,
                                     "finish", self.orfs_home,
                                     self.branch_from, self.branch_through,
-                                    self.measure_clock)
+                                    self.measure_clock, self.num_cores)
         self._pending[cid] = ref
         return (f"candidate {cid} started with {knobs}. A full build takes "
                 f"around an hour. Up to {self.parallel_slots} candidates run at "

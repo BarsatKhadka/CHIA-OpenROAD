@@ -366,3 +366,61 @@ cluster size and buffer distance at their minimums, so only diameter varied.
 Fixed (greedy max-min in normalised knob space), but these four numbers
 describe one axis. Rerunning with diverse candidates is the first thing to do
 when checkpoint branching makes it cheap.
+
+---
+
+# Agent-in-the-loop over hour-long tools
+
+Five successive runs failed before this worked, and none of the failures were
+in the physical design, the surrogate, or the agent's reasoning. All five came
+from one wrong assumption: that an agent can hold a session open across an
+hour-long tool call.
+
+| run | what happened | cause |
+|---|---|---|
+| 1 | "built" two candidates in 1 s | work dirs collided with a stale run |
+| 2 | proposed nothing | a reply with no tool call ends the client loop |
+| 3 | declared the build system broken | polling reported liveness, not progress |
+| 4 | four candidates orphaned | a ChiaTool is pickled into its MCP actor, so tool state exists in two copies |
+| 5 | hung for 2h10m, twice | `VertexGeminiLLM` does not honour `timeout_seconds` |
+
+`timing_opt`'s start/poll pattern is built for 5–30 minute Genus runs, which sit
+just inside what polling tolerates. A 62-minute ORFS candidate does not.
+
+## What CHIA actually does
+
+Its gem5 alignment study (paper §5.1, Fig. 3) ran **202 iterations over 10.5
+days** and never held an agent across the expensive work. From that example's
+own README:
+
+> Each iteration restores a parent state, asks an LLM to edit the gem5 config
+> and `src/`, rebuilds gem5, runs a microbenchmark suite, and compares... .
+> Results are persisted to a SQLite DB; each new iteration samples its parent
+> from the top-2 entries.
+
+A **fresh agent per iteration**, with memory in a database rather than in a
+conversation:
+
+    render ledger -> agent decides (seconds) -> build in Python (hours) -> persist
+         ^                                                                    |
+         +--------------------------------------------------------------------+
+
+`chia_openroad/iterate.py` implements this. The agent answers one bounded
+question — *given everything tried so far, what should we build next?* — in
+about 20 seconds, and nothing waits on a model. Proposals come back as JSON
+lines, `KnobPolicy` gates each one before anything runs, and the builds happen
+in parallel with the agent absent.
+
+## Sizing that follows from it
+
+Candidates run concurrently, so `NUM_CORES` must be divided among them: one
+`orfs` slot is about one core. Three candidates each taking all four cores of a
+4-core box pushed load to 12.9 and made each roughly three times slower than
+necessary.
+
+## Not yet adopted
+
+CHIA samples each iteration's **parent from the top-2 results**, making the loop
+a tree search rather than a fan-out from one base. For CTS-only knobs the
+placement is the natural shared parent, so the gain is smaller here — but it is
+the obvious next refinement.
