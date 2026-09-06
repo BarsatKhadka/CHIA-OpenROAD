@@ -15,8 +15,10 @@ cluster_name: chia_openroad
 
 available_node_types:
     orfs_worker:
-        # One ORFS flow is `make -j1`, so a "slot" is roughly one candidate.
-        # 4 here matches the 4 vCPUs; memory, not cores, is the real limit.
+        # A slot is one candidate. The node divides NUM_CORES by the slot
+        # count, so on a 32-vCPU machine 4 slots means 8 threads per candidate
+        # and no oversubscription. An earlier 4-vCPU run with 4 slots gave every
+        # candidate 4 threads, drove load to 12.9, and made each ~3x slower.
         resources: {"orfs": 4}
         num_workers: 1
         compatible_ips: ["10.138.0.2"]
@@ -28,8 +30,8 @@ available_node_types:
             pull_before_run: False
             run_options:
                 # Ray's object store lives in /dev/shm; Docker's 64 MB default
-                # makes the raylet fail to start.
-                - --shm-size=4g
+                # makes the raylet fail to start. Ray wants ~30% of RAM.
+                - --shm-size=16g
 
 auth:
     ssh_user: barsat
