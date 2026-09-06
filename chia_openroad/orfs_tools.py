@@ -53,6 +53,17 @@ MAX_POLL_SECONDS = 180
 MAX_POLL_SECONDS_LOCAL = 5400
 
 
+#: Cap on a single poll when the tool is reached over MCP, where the HTTP
+#: round trip must not stall (timing_opt suggests <~200 s).
+MAX_POLL_SECONDS = 180
+
+#: Cap when the tool is called in-process by a loop we drive ourselves. There
+#: is no HTTP round trip to hold open, so a poll can simply wait for the build
+#: instead of returning "still running" twenty times — which is what led one
+#: agent to conclude the build system was broken and stop.
+MAX_POLL_SECONDS_LOCAL = 5400
+
+
 @ray.remote(num_cpus=0)
 class _PendingRegistry:
     """Shared record of in-flight candidates: candidate id -> ObjectRef.
@@ -144,6 +155,16 @@ class ORFSAgentTool(ChiaTool):
               branch_through: str = "place", screen: dict | None = None,
               measure_clock: bool = False, parallel_slots: int = 1,
               local_calls: bool = False):
+        #: In-flight candidates: id -> ObjectRef.
+        #:
+        #: A plain dict, deliberately. An earlier version kept these in a Ray
+        #: actor so the driver and the tool's pickled MCP copy could share
+        #: them — but ray.get resolves nested ObjectRefs, so the actor handed
+        #: back a finished result list where a ref was expected
+        #:   TypeError: wait() expected a list of ray.ObjectRef ... got list
+        #: The sharing is no longer needed: the loop drives the tool in-process
+        #: (see chia_openroad/iterate.py), so one copy owns the refs it made.
+        self._pending: dict[int, object] = {}
         #: Distinguishes this run's work directories from a previous run's.
         #: Without it, a fresh ledger restarts candidate ids at 1 while
         #: /tmp/<root>/cand-00001 still holds a completed tree from last time —
@@ -233,7 +254,7 @@ class ORFSAgentTool(ChiaTool):
                                     "finish", self.orfs_home,
                                     self.branch_from, self.branch_through,
                                     self.measure_clock)
-        ray.get(_registry(self.run_token).put.remote(cid, ref))
+        self._pending[cid] = ref
         return (f"candidate {cid} started with {knobs}. A full build takes "
                 f"around an hour. Up to {self.parallel_slots} candidates run at "
                 f"once, so propose the others you want now and poll them all "
@@ -247,7 +268,7 @@ class ORFSAgentTool(ChiaTool):
             max_wait_seconds: block up to this long (capped at 180) before
                 reporting back. Use a short wait to interleave other work.
         """
-        ref = ray.get(_registry(self.run_token).get.remote(candidate_id))
+        ref = self._pending.get(candidate_id)
         if ref is None:
             existing = self.store.get(candidate_id)
             return existing.one_line() if existing else f"no candidate {candidate_id}"
@@ -264,7 +285,7 @@ class ORFSAgentTool(ChiaTool):
                     f"A full build takes around an hour — propose other "
                     f"candidates while this one runs rather than waiting on it.")
 
-        ray.get(_registry(self.run_token).pop.remote(candidate_id))
+        self._pending.pop(candidate_id, None)
         try:
             results = ray.get(ref)
         except Exception as exc:                       # worker died, preempted, etc
@@ -279,7 +300,7 @@ class ORFSAgentTool(ChiaTool):
     def pending_ids(self) -> list:
         """Candidates still in flight — for a caller draining after the agent
         stops. Not exposed as an MCP tool; this is the loop's business."""
-        return ray.get(_registry(self.run_token).ids.remote())
+        return sorted(self._pending)
 
     def _progress(self, cid: int) -> str:
         """Which stage a running candidate has reached, from its checkpoints."""
