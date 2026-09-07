@@ -1,7 +1,7 @@
 """Does stage-scoped invalidation actually keep the right stages and drop the rest?"""
 import os, shutil, sys, time
 from chia_openroad.openroad import OpenROADNode, earliest_affected_stage
-from chia_openroad.knob_stages import KNOB_STAGE
+from chia_openroad.knob_specs import KNOB_STAGE
 
 run = OpenROADNode.run_stage._chia_original
 W, DESIGN = "/work/inv", "./designs/sky130hd/gcd/config.mk"
