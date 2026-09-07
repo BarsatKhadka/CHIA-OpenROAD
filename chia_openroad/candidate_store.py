@@ -199,5 +199,10 @@ class CandidateStore:
             "failed": sum(1 for c in rows if c.status == "failed"),
             # The headline cost measure: ORFS invocations, not agent turns.
             "tool_runs": sum(c.tool_runs for c in rows),
-            "wall_clock_s": round(sum(c.elapsed_s for c in rows), 1),
+            # Summed build time across candidates, NOT elapsed wall clock:
+            # candidates run concurrently, so this exceeds real time by roughly
+            # the parallel width. A 12-candidate run summing 22108s took 10080s
+            # on the clock. Named wall_clock_s once, which overstated the cost
+            # of the loop by 2x in exactly the direction that flatters nothing.
+            "build_seconds_total": round(sum(c.elapsed_s for c in rows), 1),
         }
