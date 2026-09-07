@@ -188,6 +188,9 @@ def main():
                          "enforced here rather than by the backend")
     ap.add_argument("--no-agent", action="store_true",
                     help="screen and build the top picks without an LLM")
+    ap.add_argument("--no-tools", action="store_true",
+                    help="deny the agent read-only tool calls inside a turn "
+                         "(control arm: everything is pushed in the prompt)")
     ap.add_argument("--no-consult", action="store_true",
                     help="skip the surrogate consultation round each iteration "
                          "(the control arm: one model call instead of two)")
@@ -358,6 +361,7 @@ def main():
                     store=store, failures=failures, screen=screen, policy=policy,
                     build=build, iterations=args.turns,
                     consult=None if args.no_consult else consult,
+                    tool=None if args.no_tools else tool,
                     per_iteration=min(slots, args.picks),
                     transcript_path=os.path.join(HERE, f"transcript_{args.design}.json"))
                 print(f"\n=== agent ran {outcome['iterations']} iteration(s) ===")

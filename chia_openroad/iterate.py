@@ -134,11 +134,81 @@ def ask(client, model: str, system: str, prompt: str, timeout_s: int = 180) -> s
                    if getattr(p, "text", None))
 
 
+
+#: Tools the agent may call *inside* a turn. Read-only and fast — SQLite
+#: queries and a fitted model, all milliseconds.
+#:
+#: propose_candidate and candidate_status are deliberately absent. They are the
+#: only slow ones: candidate_status blocks for ~30 min waiting on a build, and
+#: holding a model session open across that is what made five successive runs
+#: fail (hung 2h10m twice, recycled stale results, declared the build system
+#: broken). The distinction that matters is not "tools vs no tools" — it is
+#: fast tools inside the turn, the hour-long one outside it. Building stays
+#: with the driver, which is also what keeps the trust boundary trivial to
+#: state: the agent reads freely and commits by proposing, never by executing.
+READ_ONLY_TOOLS = ("list_legal_knobs", "past_failures", "list_candidates",
+                   "compare_candidates", "best_candidate", "screen_candidates",
+                   "predict_knobs")
+
+
+def ask_with_tools(client, model: str, system: str, prompt: str, tool,
+                   timeout_s: int = 180, max_calls: int = 12) -> tuple[str, list]:
+    """One turn in which the agent may consult read-only tools before answering.
+
+    Returns (final_text, calls_made). Falls back to a plain ask() if the tool
+    exposes none of READ_ONLY_TOOLS, so a caller without a tool still works.
+    """
+    from google.genai import types
+    from chia_openroad.agent import _schema_for
+
+    fns = {n: getattr(tool, n) for n in READ_ONLY_TOOLS if hasattr(tool, n)}
+    if not fns:
+        return ask(client, model, system, prompt, timeout_s), []
+    decls = [_schema_for(f) for f in fns.values()]
+
+    history = [types.Content(role="user", parts=[types.Part(text=prompt)])]
+    made, final = [], ""
+    for _ in range(max_calls):
+        resp = client.models.generate_content(
+            model=model, contents=history,
+            config=types.GenerateContentConfig(
+                system_instruction=system or None,
+                tools=[types.Tool(function_declarations=decls)],
+                temperature=0.4,
+                http_options=types.HttpOptions(timeout=timeout_s * 1000)))
+        cand = (resp.candidates or [None])[0]
+        if cand is None or not cand.content:
+            break
+        history.append(cand.content)
+        parts = cand.content.parts or []
+        texts = [p.text for p in parts if getattr(p, "text", None)]
+        if texts:
+            final = "\n".join(texts)
+        calls = [p.function_call for p in parts if getattr(p, "function_call", None)]
+        if not calls:
+            break
+        # One Content carrying exactly as many responses as there were calls;
+        # separate messages fail with "number of function response parts must
+        # equal number of function call parts".
+        out = []
+        for call in calls:
+            args = dict(call.args or {})
+            made.append(f"{call.name}({json.dumps(args, default=str)[:100]})")
+            try:
+                result = fns[call.name](**args)
+            except Exception as exc:
+                result = f"{type(exc).__name__}: {exc}"
+            out.append(types.Part.from_function_response(
+                name=call.name, response={"result": str(result)[:8000]}))
+        history.append(types.Content(role="user", parts=out))
+    return final, made
+
+
 def run_iterations(*, client, model, system, store, failures, screen, policy,
                    build, iterations: int, per_iteration: int,
                    objective: str = "worst_slack", better: str = "higher",
                    transcript_path: str | None = None, timeout_s: int = 180,
-                   consult=None, shortlist_factor: int = 3) -> dict:
+                   consult=None, shortlist_factor: int = 3, tool=None) -> dict:
     """Alternate short agent decisions with programmatic builds.
 
     ``build(knobs_list) -> list[(knobs, result)]`` runs candidates in parallel
@@ -180,7 +250,11 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
             f'`"from": <id>` to its JSON. That records the lineage so the search '
             f"reads as a tree; it does not change the cost.\n\n"
             f"Legal knobs and ranges:\n{policy.describe_for_agent()}\n\n"
-            f"Reply with one JSON object per line and nothing else, e.g.\n"
+            + (f"You may call the read-only tools available to you first — "
+               f"they cost milliseconds, and predict_knobs will price any "
+               f"configuration you are weighing before you spend an hour on "
+               f"it. When you are done looking, answer.\n\n" if tool is not None else "")
+            + f"Reply with one JSON object per line and nothing else, e.g.\n"
             f'{{"CORE_UTILIZATION": 40, "CTS_CLUSTER_SIZE": 18, "from": 14}}\n'
             f"State your reasoning briefly first, then the JSON lines.")
 
@@ -219,8 +293,16 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
                         f"is silent on knobs it does not observe. Use them to "
                         f"choose — do not treat a tie as a decision.")
 
+        tool_calls = []
         try:
-            reply = ask(client, model, system, prompt, timeout_s)
+            if tool is not None:
+                reply, tool_calls = ask_with_tools(client, model, system, prompt,
+                                                   tool, timeout_s)
+                if tool_calls:
+                    logger.info("iteration %d: agent called %d tool(s): %s",
+                                i + 1, len(tool_calls), ", ".join(tool_calls[:6]))
+            else:
+                reply = ask(client, model, system, prompt, timeout_s)
         except Exception as exc:
             logger.error("iteration %d: model call failed: %s", i + 1, exc)
             break
@@ -232,7 +314,7 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
             logger.warning("iteration %d rejected %s", i + 1, r)
         transcript.append({"iteration": i + 1, "reply": reply,
                            "proposed": proposals, "rejected": rejections,
-                           "consulted": consulted})
+                           "consulted": consulted, "tool_calls": tool_calls})
         if transcript_path:
             with open(transcript_path, "w") as f:
                 json.dump(transcript, f, indent=1)
