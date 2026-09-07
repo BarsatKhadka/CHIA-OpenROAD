@@ -1,0 +1,139 @@
+% CHIA-OpenROAD --- A3 CHIA Hackathon technical write-up (4 pages, ACM sigconf).
+% Swap to IEEEtran if the organisers ask for it; section budget is unchanged.
+%
+% BUDGET (two columns, 4 pages ~ 4000 words + figures). Overrunning page 4 is
+% the usual failure, so the numbers below are column-inches, not suggestions:
+%   1. Context + contributions          0.75 col   -- what and why, no survey
+%   2. The loop                         1.5  col   + Fig.1 (double-column)
+%   3. Trust boundary                   0.75 col
+%   4. Surrogate socket                 1.5  col   -- THE deliverable
+%   5. Results                          1.5  col   + Tab.2, Tab.3
+%   6. What broke                       1.5  col   + Tab.4  -- your best material
+%   7. Limitations + availability       0.75 col
+\documentclass[sigconf,nonacm]{acmart}
+\begin{document}
+
+\title{CHIA-OpenROAD: An Agentic RTL-to-GDS Loop with a Replaceable
+       Surrogate Evaluator}
+\author{Barsat Khadka}
+\affiliation{\institution{}\country{}}
+
+\begin{abstract}
+% 150 words. State the socket as the contribution, not SwiftCTS.
+\end{abstract}
+\maketitle
+
+\section{Context and contributions}
+% Agent proposes, programmatic evaluation decides. Say what is new: not that an
+% LLM tunes knobs (AutoTuner does), but that the evaluator is a REPLACEABLE
+% component with a declared contract, and the agent is told what each model
+% cannot see.
+
+\section{The loop}
+% Fig.1: ledger -> prompt -> proposals -> parallel builds -> ledger.
+% Say plainly: the agent is stateless between iterations; memory is a SQLite
+% ledger rendered as markdown. Cite CHIA's gem5 pattern. Say why: holding a
+% session across an hour-long tool call failed five successive runs.
+% Fast tools (SQLite, fitted models) are callable inside a turn; the build is not.
+
+\section{The trust boundary}
+% Eight read-only tools. run_stage unreachable. No tool runs DRC/LVS, parses a
+% report, supplies its own metric, or passes force_rebuild/extra_make_args.
+% Mirrors CHIA's ISA and critical-path studies.
+
+\section{The surrogate socket}
+% THE deliverable. The ABC and why each field exists:
+%   observes_stage -- what must be built before the model can speak
+%   requires       -- which artifacts to dump
+%   predicts       -- kind "orfs_metric" MUST name a real ORFS key, else the
+%                     model is never checked and looks perfect forever
+%   domain         -- fitted range; the loop intersects it with legal knobs
+% Generality evidence: feasibility.py was written after the ABC was frozen and
+% required no change to it. Table 1.
+
+\begin{table}[t]\centering\small
+\caption{Three unlike plugins in the same socket.}
+\begin{tabular}{llll}
+\hline
+Plugin & Observes & Requires & Predicts \\
+\hline
+SwiftCTS    & \texttt{place} & DEF, timing & clock wirelength \\
+Feasibility & ---            & ---         & $p(\textrm{builds})$ \\
+Template    & \texttt{place} & DEF         & clock skew \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Results}
+% Design: aes / sky130hd. Model: gemini-2.5-flash. 3 iterations x 4 candidates.
+% Say the objective was worst_slack and that area/power moved too (+6% each) --
+% do not report slack alone.
+
+\begin{table}[t]\centering\small
+\caption{Agent search on aes/sky130hd, 3 iterations of 4 candidates.}
+\begin{tabular}{lrrl}
+\hline
+Iteration & Best worst slack (ns) & Built/Failed & Winning knob \\
+\hline
+1 & $-0.0800$ & 3/1 & \texttt{CORE\_UTILIZATION}=30 \\
+2 & $-0.0472$ & 3/1 & \texttt{CORE\_UTILIZATION}=25 \\
+3 & $-0.0235$ & 3/1 & \texttt{CORE\_UTILIZATION}=25 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[t]\centering\small
+\caption{Where a flow's time goes (aes/sky130hd, 8 threads).}
+\begin{tabular}{lrr}
+\hline
+Stage & Time (s) & Share \\
+\hline
+floorplan       &    3 & 0.2\% \\
+place           &   44 & 2.6\% \\
+CTS             &   23 & 1.4\% \\
+global route    &  270 & 16.2\% \\
+detailed route  & 1306 & 78.2\% \\
+finish          &   24 & 1.4\% \\
+\hline
+\end{tabular}
+\end{table}
+% Consequence, and it is the interesting one: branch-and-reuse saves ~3% on aes
+% because any knob change forces a re-route. Screening avoids the build
+% entirely -- 216 configurations ranked in 0.70 s. Compute reuse is a rounding
+% error next to not building.
+
+\section{What broke, and what it cost}
+% Strongest section. Each row is measured, not anecdotal.
+
+\begin{table}[t]\centering\small
+\caption{Failures found while building the loop.}
+\begin{tabular}{p{2.4cm}p{5.0cm}}
+\hline
+Symptom & Cause and cost \\
+\hline
+Identical results for different knobs &
+\texttt{make} does not invalidate on variable change; \texttt{make -n} reports
+``all up to date'' even for a knob that does not exist. 12 candidates reported
+a floorplan none had requested. \\
+Prediction for a design that will not exist &
+A \texttt{place}-stage model reads the \emph{shared} placement; any pre-CTS
+knob changes it. Every prediction in one run was anchored to a stand-in. \\
+LVS certified clean &
+\texttt{make lvs} exits 0 on mismatch; the deck's \texttt{raise} is commented
+out. Verdict must be read from the report. \\
+Iteration stalled 3.5\,h &
+One unroutable floorplan; \texttt{run\_stage} defaulted to a 24\,h timeout. \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Limitations}
+% Say all of it plainly: n=1 design; SwiftCTS usable for wirelength only
+% (power rank_corr 0.00 without SAIF, skew not produced); LVS blocked by ORFS
+% collateral; 3 iterations is a short search; knob ranges uncalibrated for aes,
+% which cost 3 of 12 candidates.
+
+\section*{Availability}
+% Repo URL, the exact command, the commit hash used for the results.
+
+\end{document}
