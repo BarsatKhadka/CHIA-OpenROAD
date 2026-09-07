@@ -65,4 +65,21 @@ out = call({"CORE_UTILIZATION": 55})
 ck("stage-specific models disagree usefully", "p_builds=0.2" in out,
    [l.strip() for l in out.splitlines() if "p_builds" in l][:1])
 
+# The lifecycle point: a place-stage model reads a FINISHED placement, so a
+# knob that changes the placement invalidates what it read.
+out = call({"CORE_UTILIZATION": 25, "CTS_CLUSTER_SIZE": 20})
+ck("warns when a knob changes the stage the model reads",
+   "would change that place" in out,
+   [l.strip()[:78] for l in out.splitlines() if "NOTE:" in l][:1])
+ck("no such warning for a model that reads no stage",
+   out.count("NOTE:") == 1)
+out = call({"CTS_CLUSTER_SIZE": 20})
+ck("a post-place-only knob gets no warning", "NOTE:" not in out)
+
+desc = ORFSAgentTool.describe_surrogates(me)
+ck("describe names the stage each model reads", "reads a finished place" in desc
+   and "needs no design state" in desc)
+ck("describe says which knobs it is fully valid for",
+   "fully valid only for knobs that act after place" in desc)
+
 print("\n" + ("FAILED: " + ", ".join(fails) if fails else "PREDICT_KNOBS PASSED"))

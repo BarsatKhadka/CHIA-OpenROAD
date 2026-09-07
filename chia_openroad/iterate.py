@@ -148,7 +148,7 @@ def ask(client, model: str, system: str, prompt: str, timeout_s: int = 180) -> s
 #: state: the agent reads freely and commits by proposing, never by executing.
 READ_ONLY_TOOLS = ("list_legal_knobs", "past_failures", "list_candidates",
                    "compare_candidates", "best_candidate", "screen_candidates",
-                   "predict_knobs")
+                   "describe_surrogates", "predict_knobs")
 
 
 def ask_with_tools(client, model: str, system: str, prompt: str, tool,

@@ -38,6 +38,7 @@ from chia.base.tools.ChiaTool import ChiaTool
 from chia_openroad.candidate_store import CandidateStore
 from chia_openroad.failure_log import FailureLog
 from chia_openroad.knob_policy import KnobPolicy
+from chia_openroad.knob_specs import KNOB_STAGE, STAGE_ORDER
 from chia_openroad.openroad import DEFAULT_GATE_STAGE, OpenROADNode, run_flow
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,30 @@ MAX_POLL_SECONDS_LOCAL = 5400
 #: not close to converging, and "did not route in 90 minutes" is a true and
 #: useful thing for the agent to learn about a floorplan.
 STAGE_TIMEOUT_SECONDS = 5400
+
+
+
+def _breaks_anchor(cfg: dict, observes_stage: str | None) -> list[str]:
+    """Knobs in *cfg* that change the very state a surrogate reads.
+
+    A surrogate with ``observes_stage="place"`` predicts *from a finished
+    placement* — SwiftCTS reads that placement's DEF and timing report. The
+    placement it actually read is the shared one every candidate branches from,
+    built at the design's default knobs. So a configuration that changes
+    anything at or before ``place`` would produce a *different* placement, and
+    the prediction describes a design that will not exist.
+
+    This is not hypothetical: every candidate in a 12-candidate aes run set
+    CORE_UTILIZATION, so every prediction was anchored to a placement none of
+    them would build, and nothing said so. The number is still indicative —
+    the model is fitted on real designs — but the agent has to know it is
+    reasoning about a stand-in.
+    """
+    if not observes_stage or observes_stage not in STAGE_ORDER:
+        return []
+    limit = STAGE_ORDER.index(observes_stage)
+    return sorted(k for k in cfg
+                  if k in KNOB_STAGE and STAGE_ORDER.index(KNOB_STAGE[k]) <= limit)
 
 
 @ray.remote(num_cpus=0)
@@ -213,7 +238,7 @@ class ORFSAgentTool(ChiaTool):
         if self.screen:
             tools.append(self.screen_candidates)
         if self.surrogates and self.state is not None:
-            tools.append(self.predict_knobs)
+            tools += [self.describe_surrogates, self.predict_knobs]
         for fn in tools:
             self.mcp.add_tool(fn, name=f"{self.name}_{fn.__name__}")
 
@@ -395,6 +420,44 @@ class ORFSAgentTool(ChiaTool):
                  for knobs, value in ranked]
         return head + "\n" + "\n".join(lines)
 
+    def describe_surrogates(self) -> str:
+        """What fast models are available, what each reads, and what it predicts.
+
+        Read this before trusting predict_knobs. A model that observes a stage
+        predicts *from a finished run of that stage* — so it is only fully
+        valid for configurations that do not change that stage or anything
+        before it.
+        """
+        if not self.surrogates:
+            return "no fast models are available; every judgement needs a build."
+        lines = []
+        for sur in self.surrogates:
+            stage = sur.observes_stage
+            preds = ", ".join(f"{k} ({v})" for k, v in
+                              sorted((getattr(sur, "predicts", {}) or {}).items()))
+            lines.append(f"{sur.name}:")
+            lines.append(f"  predicts: {preds or '(nothing declared)'}")
+            if stage:
+                lines.append(f"  reads a finished {stage} stage"
+                             + (f", specifically: {', '.join(sur.requires)}"
+                                if getattr(sur, "requires", ()) else ""))
+                after = STAGE_ORDER[STAGE_ORDER.index(stage) + 1:] \
+                    if stage in STAGE_ORDER else []
+                lines.append(f"  so it is fully valid only for knobs that act "
+                             f"after {stage}"
+                             + (f" ({', '.join(after)})" if after else "")
+                             + f". Change {stage} or earlier and it predicts "
+                               f"from a stand-in.")
+            else:
+                lines.append("  needs no design state; valid for any configuration")
+            dom = getattr(sur, "domain", {}) or {}
+            if dom:
+                lines.append("  fitted ranges: " + ", ".join(
+                    f"{k} {v[0]:g}..{v[1]:g}" for k, v in sorted(dom.items())))
+                lines.append("  it is blind to every other knob, and will "
+                             "predict identically as they vary")
+        return "\n".join(lines)
+
     def predict_knobs(self, knobs) -> str:
         """Ask the fast models what they expect for configurations YOU choose.
 
@@ -467,6 +530,13 @@ class ORFSAgentTool(ChiaTool):
                 if outside:
                     lines.append(f"          OUTSIDE its fitted range, "
                                  f"extrapolated: {', '.join(outside)}")
+                stale = _breaks_anchor(cfg, sur.observes_stage)
+                if stale:
+                    lines.append(
+                        f"          NOTE: it reads a finished "
+                        f"{sur.observes_stage}, but {', '.join(stale)} would "
+                        f"change that {sur.observes_stage}. Predicted from the "
+                        f"current one — indicative, not specific to this config.")
         if declined:
             lines += [f"  {d}" for d in declined]
         if problems:
