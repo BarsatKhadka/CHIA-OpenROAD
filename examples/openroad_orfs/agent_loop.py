@@ -19,6 +19,7 @@ import ray
 from chia.models.vertex import VertexGeminiLLM
 
 import chia_openroad
+from chia_openroad import cluster
 from chia_openroad.candidate_store import CandidateStore
 from chia_openroad.failure_log import FailureLog
 from chia_openroad.knob_policy import KnobPolicy
@@ -59,7 +60,7 @@ def main() -> int:
     args = ap.parse_args()
 
     design_config = f"./designs/{args.platform}/{args.design}/config.mk"
-    ray.init(address="auto", runtime_env={"py_modules": [chia_openroad]})
+    cluster.init(ray, chia_openroad)
     log.info("cluster: %s", {k: v for k, v in ray.cluster_resources().items()
                              if k in ("CPU", "orfs")})
 

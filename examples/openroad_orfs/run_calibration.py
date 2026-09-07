@@ -7,6 +7,7 @@ import json, logging, sys, time
 import ray
 from chia.base.ChiaFunction import get
 import chia_openroad
+from chia_openroad import cluster
 from chia_openroad.calibrate import calibrate, apply
 from chia_openroad.knob_policy import KnobPolicy
 from chia_openroad.openroad import OpenROADNode
@@ -18,7 +19,7 @@ DESIGN = "./designs/sky130hd/gcd/config.mk"
 # can follow once we know what a probe really costs.
 KNOBS = ["CORE_UTILIZATION", "PLACE_DENSITY", "CTS_CLUSTER_SIZE", "CTS_BUF_DISTANCE"]
 
-ray.init(address="auto", runtime_env={"py_modules": [chia_openroad]})
+cluster.init(ray, chia_openroad)
 print("resources:", {k: v for k, v in ray.cluster_resources().items()
                      if k in ("CPU", "orfs")}, flush=True)
 

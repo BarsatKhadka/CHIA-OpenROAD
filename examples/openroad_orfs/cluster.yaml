@@ -40,9 +40,14 @@ provider:
     head_ip: 10.138.0.2
 
 # The head runs on the HOST, so it needs conda's ray by absolute path.
+# The dashboard stays ON: `chia job submit` (which CHIA forwards to Ray) talks
+# to the dashboard's HTTP API on 8265, so disabling it makes the documented way
+# of running a CHIA workload fail with a bare
+#   ConnectionError: Failed to connect to Ray at address: http://127.0.0.1:8265
+# --dashboard-host=127.0.0.1 keeps it loopback-only, so nothing is exposed.
 head_start_ray_commands:
     - "/opt/conda/envs/chia_env/bin/ray stop"
-    - "/opt/conda/envs/chia_env/bin/ray start --head --port=6379 --include-dashboard=False --dashboard-agent-listen-port=0"
+    - "/opt/conda/envs/chia_env/bin/ray start --head --port=6379 --dashboard-host=127.0.0.1 --dashboard-port=8265 --dashboard-agent-listen-port=0"
 
 # These run INSIDE the container (docker exec ... bash --login), where the
 # image already puts chia_env's bin on PATH.

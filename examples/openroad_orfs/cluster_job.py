@@ -3,13 +3,14 @@ worker container. Proves the bring-up machinery, not just Ray."""
 import ray
 from chia.base.ChiaFunction import get
 import chia_openroad
+from chia_openroad import cluster
 from chia_openroad.openroad import OpenROADNode, run_flow
 
 # The worker runs inside a container that has chia and ORFS but not our code.
 # Ship it with the job rather than baking it into the image -- that is what
 # CHIA's own examples do, and it means code changes reach workers without a
 # rebuild of a 8 GB image.
-ray.init(address="auto", runtime_env={"py_modules": [chia_openroad]})
+cluster.init(ray, chia_openroad)
 print("cluster resources:", {k: v for k, v in ray.cluster_resources().items()
                              if k in ("CPU", "orfs")}, flush=True)
 
