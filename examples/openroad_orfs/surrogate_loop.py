@@ -280,7 +280,10 @@ def main():
             arm=f"agent+{args.model}" if not args.no_agent else "screen-only",
             branch_from=base, branch_through="place",
             screen=screen, measure_clock=True,
-            surrogate=surrogate, state=state,
+            # A list on purpose: a user with a floorplan feasibility model and
+            # a CTS quality model plugs in both, and predict_knobs asks each
+            # about the knobs it observes.
+            surrogates=[surrogate], state=state,
             parallel_slots=int(ray.cluster_resources().get("orfs", 1)),
             local_calls=not args.no_agent,
             task_options={"scheduling_strategy": __import__(

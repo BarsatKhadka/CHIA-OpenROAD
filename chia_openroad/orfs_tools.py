@@ -133,7 +133,8 @@ class ORFSAgentTool(ChiaTool):
               orfs_home: str | None = None, branch_from: str | None = None,
               branch_through: str = "place", screen: dict | None = None,
               measure_clock: bool = False, parallel_slots: int = 1,
-              local_calls: bool = False, surrogate=None, state=None):
+              local_calls: bool = False, surrogate=None, surrogates=None,
+              state=None):
         #: In-flight candidates: id -> ObjectRef.
         #:
         #: A plain dict, deliberately. An earlier version kept these in a Ray
@@ -172,7 +173,16 @@ class ORFSAgentTool(ChiaTool):
         #: fixed grid. It cannot answer "what about THIS one?" for a config the
         #: agent invented, which is the question worth asking before spending
         #: ~30 min on a build.
-        self.surrogate = surrogate
+        #: MANY, not one. A design has stages, and a user plugging models in
+        #: will have different ones for different stages — a floorplan
+        #: feasibility model, a CTS wirelength model, a routing congestion
+        #: model. Each declares `observes_stage` and `domain`, so each can be
+        #: asked about the knobs it actually speaks to and stays silent on the
+        #: rest. `surrogate=` (singular) is accepted as a convenience.
+        given = list(surrogates or ([surrogate] if surrogate is not None else []))
+        self.surrogates = [s for s in given if s is not None]
+        #: Kept for callers that only ever had one.
+        self.surrogate = self.surrogates[0] if self.surrogates else None
         self.state = state
         self.measure_clock = measure_clock
         #: Threads each candidate may use. One `orfs` slot is about one core,
@@ -202,7 +212,7 @@ class ORFSAgentTool(ChiaTool):
                  self.best_candidate]
         if self.screen:
             tools.append(self.screen_candidates)
-        if self.surrogate is not None and self.state is not None:
+        if self.surrogates and self.state is not None:
             tools.append(self.predict_knobs)
         for fn in tools:
             self.mcp.add_tool(fn, name=f"{self.name}_{fn.__name__}")
@@ -386,17 +396,18 @@ class ORFSAgentTool(ChiaTool):
         return head + "\n" + "\n".join(lines)
 
     def predict_knobs(self, knobs) -> str:
-        """Ask the fast model what it expects for configurations YOU choose.
+        """Ask the fast models what they expect for configurations YOU choose.
 
         Costs milliseconds instead of ~30 minutes, so use it to narrow a set of
         ideas before spending a build on one. Unlike screen_candidates, which
         ranks a fixed grid decided in advance, this answers for the exact
         configurations you pass.
 
-        It is honest about its limits. The model observes only some knobs; any
-        others you pass are reported back as ignored, and two configurations
-        differing only in an ignored knob will predict identically. A tie is
-        not a reason to build both.
+        Several models may answer, each speaking only for the stage it observes
+        — one may predict clock wirelength, another whether the design builds
+        at all. Each reports the knobs it ignores; two configurations differing
+        only in an ignored knob will predict identically, and a tie is not a
+        decision.
 
         Args:
             knobs: one knob dict, or a list of them (max 20 per call).
@@ -425,27 +436,39 @@ class ORFSAgentTool(ChiaTool):
         if not clean:
             return "nothing predictable:\n" + "\n".join(f"  {p}" for p in problems)
 
-        observed = set(getattr(self.surrogate, "domain", {}) or {})
-        try:
-            preds = self.surrogate.predict(self.state, clean)
-        except Exception as exc:                       # a surrogate is advisory
-            return f"the model could not predict these: {exc}"
+        # Ask each model once for the whole batch, then report per configuration
+        # so the agent compares like with like.
+        answers, declined = {}, []
+        for sur in self.surrogates:
+            try:
+                answers[sur.name] = (sur, sur.predict(self.state, clean))
+            except Exception as exc:
+                declined.append(f"{sur.name} could not answer: {exc}")
 
-        lines = [f"{self.surrogate.name} predicts (estimates, not measurements):"]
-        for cfg, p in zip(clean, preds):
-            vals = ", ".join(f"{k}={v:.6g}" for k, v in sorted(p.values.items()))
-            shown = ", ".join(f"{k}={v}" for k, v in sorted(cfg.items()))
-            lines.append(f"  {shown}")
-            lines.append(f"      -> {vals or '(nothing this model predicts)'}")
-            ignored = sorted(set(cfg) - observed)
-            if ignored:
-                lines.append(f"      ignored by this model: {', '.join(ignored)}")
-            outside = [k for k in set(cfg) & observed
-                       if not (self.surrogate.domain[k][0] <= float(cfg[k])
-                               <= self.surrogate.domain[k][1])]
-            if outside:
-                lines.append(f"      OUTSIDE the fitted range, extrapolated: "
-                             f"{', '.join(sorted(outside))}")
+        if not answers:
+            return "no model could answer:\n" + "\n".join(f"  {d}" for d in declined)
+
+        lines = [f"{len(answers)} model(s) consulted "
+                 f"(estimates, not measurements):"]
+        for idx, cfg in enumerate(clean):
+            lines.append("  " + ", ".join(f"{k}={v}" for k, v in sorted(cfg.items())))
+            for name, (sur, preds) in answers.items():
+                p = preds[idx]
+                stage = sur.observes_stage or "any stage"
+                vals = ", ".join(f"{k}={v:.6g}" for k, v in sorted(p.values.items()))
+                lines.append(f"      {name} [{stage}] -> "
+                             f"{vals or '(nothing it predicts)'}")
+                dom = getattr(sur, "domain", {}) or {}
+                ignored = sorted(set(cfg) - set(dom))
+                if ignored and dom:
+                    lines.append(f"          ignores: {', '.join(ignored)}")
+                outside = sorted(k for k in set(cfg) & set(dom)
+                                 if not (dom[k][0] <= float(cfg[k]) <= dom[k][1]))
+                if outside:
+                    lines.append(f"          OUTSIDE its fitted range, "
+                                 f"extrapolated: {', '.join(outside)}")
+        if declined:
+            lines += [f"  {d}" for d in declined]
         if problems:
             lines.append("could not predict:")
             lines += [f"  {p}" for p in problems]
