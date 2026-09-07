@@ -52,16 +52,20 @@ MAX_POLL_SECONDS = 180
 #: agent to conclude the build system was broken and stop.
 MAX_POLL_SECONDS_LOCAL = 5400
 
-
-#: Cap on a single poll when the tool is reached over MCP, where the HTTP
-#: round trip must not stall (timing_opt suggests <~200 s).
-MAX_POLL_SECONDS = 180
-
-#: Cap when the tool is called in-process by a loop we drive ourselves. There
-#: is no HTTP round trip to hold open, so a poll can simply wait for the build
-#: instead of returning "still running" twenty times — which is what led one
-#: agent to conclude the build system was broken and stop.
-MAX_POLL_SECONDS_LOCAL = 5400
+#: Wall-clock cap on a single ORFS stage, passed down to run_stage.
+#:
+#: run_stage's own default is 86400 — a backstop against a wedged process, not
+#: a scheduling policy. One candidate showed why that is too loose:
+#: CORE_ASPECT_RATIO=0.7 with CORE_UTILIZATION=45 on aes gives a narrow, densely
+#: packed die that detailed routing cannot close. It sat at "90% with 243
+#: violations" for 3h26m while the other three candidates finished in 28-53
+#: min, and an iteration cannot advance until every candidate returns, so one
+#: such proposal stalls the whole loop. At the 24h default, for a day.
+#:
+#: 5400s is ~3x the observed median aes build (~1840s). A stage past that is
+#: not close to converging, and "did not route in 90 minutes" is a true and
+#: useful thing for the agent to learn about a floorplan.
+STAGE_TIMEOUT_SECONDS = 5400
 
 
 @ray.remote(num_cpus=0)
@@ -70,7 +74,8 @@ def _run_candidate(work_home: str, design_config: str, knobs: dict,
                    branch_from: str | None = None,
                    branch_through: str = "place",
                    measure_clock: bool = False,
-                   num_cores: int | None = None):
+                   num_cores: int | None = None,
+                   stage_timeout: int = STAGE_TIMEOUT_SECONDS):
     """Driver-side orchestrator for one candidate.
 
     ``num_cpus=0`` because this holds no resources itself — it reserves an
@@ -85,6 +90,8 @@ def _run_candidate(work_home: str, design_config: str, knobs: dict,
     run_kw = dict(kw)
     if num_cores:
         run_kw["num_cores"] = num_cores
+    if stage_timeout:
+        run_kw["timeout_seconds"] = stage_timeout
     with OpenROADNode() as node:
         if branch_from:
             # Seed from the shared prefix so make resumes at the first stage
