@@ -297,6 +297,21 @@ _TOOL_ERROR_RE = re.compile(r"\[ERROR\s+([A-Z]{2,4}-\d{3,4})\]\s*(.+)")
 _TCL_ERROR_RE = re.compile(r"^Error:\s*(\S+?),\s*\d+\s*(.+)", re.M)
 
 
+def _newest_step(dirs: dict[str, str]) -> str | None:
+    """Basename of the most recently written stage log, e.g. "5_2_route"."""
+    log_dir = dirs.get("logs", "")
+    if not os.path.isdir(log_dir):
+        return None
+    logs = sorted(_glob.glob(os.path.join(log_dir, "*.log")),
+                  key=os.path.getmtime, reverse=True)
+    if not logs:
+        return None
+    # ORFS writes "<step>.tmp.log" while a step is in flight and renames it on
+    # success, so the newest log during a timeout always carries .tmp. The step
+    # is 5_2_route, not 5_2_route.tmp — the agent reads this name.
+    return os.path.basename(logs[0])[:-4].removesuffix(".tmp")
+
+
 def _extract_failure(stage: str, dirs: dict[str, str], knobs: dict[str, str],
                      stdout: str, stderr: str) -> OrfsFailure | None:
     """Find the actual reason a stage failed.
@@ -978,9 +993,11 @@ class OpenROADNode(ColocatedNode):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             start_new_session=True,
         )
+        timed_out = False
         try:
             stdout, stderr = proc.communicate(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
+            timed_out = True
             os.killpg(proc.pid, signal.SIGKILL)
             stdout, stderr = proc.communicate()
             stderr = (stderr or "") + f"\nORFS {stage} timed out after {timeout_seconds}s"
@@ -1007,6 +1024,18 @@ class OpenROADNode(ColocatedNode):
         failure = None
         if proc.returncode != 0:
             failure = _extract_failure(stage, dirs, clean_knobs, stdout, stderr)
+            if failure is None and timed_out:
+                # A killed process writes no error the log scanner can match, so
+                # the reason would otherwise be recorded as "unknown" — which
+                # teaches the agent nothing and does not stop it proposing the
+                # same floorplan again. Name the step that ran long: on aes,
+                # CORE_ASPECT_RATIO=0.7 with CORE_UTILIZATION=45 stalls in
+                # 5_2_route specifically, and that is the useful fact.
+                failure = OrfsFailure(
+                    stage=stage, step=_newest_step(dirs) or stage, code="TIMEOUT",
+                    message=f"exceeded the {timeout_seconds}s limit; "
+                            f"still running when killed",
+                    knobs=dict(clean_knobs))
             logger.error("ORFS %s failed (rc=%s): %s", stage, proc.returncode,
                          failure.as_hint() if failure else "(no recognisable error)")
 
