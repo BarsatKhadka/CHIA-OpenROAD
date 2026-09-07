@@ -78,9 +78,13 @@ def _run_candidate(work_home: str, design_config: str, knobs: dict,
     Without this the placement group would wait behind its own orchestrator.
     """
     from chia.base.ChiaFunction import get
+    # Two argument sets on purpose: `branch` and `measure_clock` take neither
+    # knobs nor a thread count, and passing one is a TypeError that surfaces
+    # only at run time inside a Ray task.
     kw = {"orfs_home": orfs_home} if orfs_home else {}
+    run_kw = dict(kw)
     if num_cores:
-        kw["num_cores"] = num_cores
+        run_kw["num_cores"] = num_cores
     with OpenROADNode() as node:
         if branch_from:
             # Seed from the shared prefix so make resumes at the first stage
@@ -94,7 +98,7 @@ def _run_candidate(work_home: str, design_config: str, knobs: dict,
             # parent's knobs, and invalidation would have to delete them again.
 
         def run(stage, **inner):
-            r = get(node.run_stage.chia_remote(stage, **inner, **kw))
+            r = get(node.run_stage.chia_remote(stage, **inner, **run_kw))
             if measure_clock and r.success and stage in ("route", "finish"):
                 clock = get(node.measure_clock.chia_remote(
                     inner["work_home"], inner["design_config"], stage="route", **kw))
