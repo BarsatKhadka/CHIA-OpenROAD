@@ -133,7 +133,11 @@ branch = OpenROADNode.branch._chia_original
 BASE, CAND = "/work/invG_base", "/work/invG_cand"
 CR = f"{CAND}/results/sky130hd/gcd/base"
 def die(res):
-    return next((v for k, v in res.metrics.items() if k.endswith("design__die__area")), None)
+    # Per-stage JSONs, not res.metrics: res.metrics is 6_report.json, which
+    # does not exist until finish has run. A floorplan-only run reports its
+    # area in stage_metrics["2_1_floorplan.json"].
+    return next((v for m in res.stage_metrics.values() for k, v in m.items()
+                 if k.endswith("design__die__area") and v), None)
 for d in (BASE, CAND):
     shutil.rmtree(d, ignore_errors=True)
 
