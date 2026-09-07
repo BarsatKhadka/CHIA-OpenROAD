@@ -137,11 +137,26 @@ def ask(client, model: str, system: str, prompt: str, timeout_s: int = 180) -> s
 def run_iterations(*, client, model, system, store, failures, screen, policy,
                    build, iterations: int, per_iteration: int,
                    objective: str = "worst_slack", better: str = "higher",
-                   transcript_path: str | None = None, timeout_s: int = 180) -> dict:
+                   transcript_path: str | None = None, timeout_s: int = 180,
+                   consult=None, shortlist_factor: int = 3) -> dict:
     """Alternate short agent decisions with programmatic builds.
 
     ``build(knobs_list) -> list[(knobs, result)]`` runs candidates in parallel
     and returns once they are all done. The agent is never inside that call.
+
+    ``consult(knob_dicts) -> str`` is optional. When given, each iteration runs
+    two short model calls instead of one: the agent first names a *shortlist*
+    it is considering, the surrogate prices that shortlist in milliseconds, and
+    the agent then commits knowing what a fast model expects.
+
+    Why two calls rather than a tool the agent can invoke at will: a tool loop
+    reintroduces function-call round trips, which is what made an earlier
+    version hang for 2h10m and recycle stale results. Two bounded calls give
+    the agent the same information with no open-ended loop. The surrogate is
+    milliseconds, so consulting it is free next to the ~30 min a build costs.
+
+    Without ``consult`` the behaviour is exactly the single-call loop, which is
+    the control arm for measuring whether consultation is worth anything.
     """
     transcript = []
     for i in range(iterations):
@@ -170,6 +185,40 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
             f"State your reasoning briefly first, then the JSON lines.")
 
         started = time.monotonic()
+        consulted = None
+        if consult is not None:
+            # Round 1: what are you thinking about? Deliberately wider than the
+            # build budget — the point is to price ideas before committing.
+            want = max(per_iteration + 1, per_iteration * shortlist_factor)
+            try:
+                draft = ask(client, model, system, prompt + (
+                    f"\n\nFIRST, before committing: list up to {want} "
+                    f"configurations you are CONSIDERING. A fast model will "
+                    f"price them for you and you will then choose which to "
+                    f"build. These are candidates for evaluation, not your "
+                    f"final answer, so spread them out.\n"
+                    f"Reply with one JSON object per line and nothing else."),
+                    timeout_s)
+                ideas, _ = parse_proposals(draft, policy, want)
+            except Exception as exc:
+                logger.warning("iteration %d: shortlist call failed (%s); "
+                               "proceeding without consultation", i + 1, exc)
+                ideas = []
+            if ideas:
+                try:
+                    consulted = consult([d["knobs"] for d in ideas])
+                except Exception as exc:
+                    logger.warning("iteration %d: surrogate declined (%s)", i + 1, exc)
+                if consulted:
+                    logger.info("iteration %d: surrogate priced %d shortlisted "
+                                "configuration(s)", i + 1, len(ideas))
+                    prompt += (
+                        f"\n\n## A fast model priced the shortlist you were "
+                        f"considering\n\n{consulted}\n\n"
+                        f"These are predictions, not measurements, and the model "
+                        f"is silent on knobs it does not observe. Use them to "
+                        f"choose — do not treat a tie as a decision.")
+
         try:
             reply = ask(client, model, system, prompt, timeout_s)
         except Exception as exc:
@@ -182,7 +231,8 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
         for r in rejections:
             logger.warning("iteration %d rejected %s", i + 1, r)
         transcript.append({"iteration": i + 1, "reply": reply,
-                           "proposed": proposals, "rejected": rejections})
+                           "proposed": proposals, "rejected": rejections,
+                           "consulted": consulted})
         if transcript_path:
             with open(transcript_path, "w") as f:
                 json.dump(transcript, f, indent=1)

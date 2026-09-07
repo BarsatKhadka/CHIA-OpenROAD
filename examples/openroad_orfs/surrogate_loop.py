@@ -188,6 +188,9 @@ def main():
                          "enforced here rather than by the backend")
     ap.add_argument("--no-agent", action="store_true",
                     help="screen and build the top picks without an LLM")
+    ap.add_argument("--no-consult", action="store_true",
+                    help="skip the surrogate consultation round each iteration "
+                         "(the control arm: one model call instead of two)")
     ap.add_argument("--picks", type=int, default=3,
                     help="candidates to build in --no-agent mode")
     args = ap.parse_args()
@@ -274,6 +277,7 @@ def main():
             arm=f"agent+{args.model}" if not args.no_agent else "screen-only",
             branch_from=base, branch_through="place",
             screen=screen, measure_clock=True,
+            surrogate=surrogate, state=state,
             parallel_slots=int(ray.cluster_resources().get("orfs", 1)),
             local_calls=not args.no_agent,
             task_options={"scheduling_strategy": __import__(
@@ -341,10 +345,19 @@ def main():
                                 break
                         print(f"    {status}", flush=True)
 
+                def consult(knob_dicts):
+                    """Price a shortlist with the fitted model, in milliseconds.
+
+                    Goes through the same tool the trust boundary defines, so a
+                    consultation cannot reach anything a proposal could not.
+                    """
+                    return tool.predict_knobs(list(knob_dicts))
+
                 outcome = run_iterations(
                     client=client, model=args.model, system=system,
                     store=store, failures=failures, screen=screen, policy=policy,
                     build=build, iterations=args.turns,
+                    consult=None if args.no_consult else consult,
                     per_iteration=min(slots, args.picks),
                     transcript_path=os.path.join(HERE, f"transcript_{args.design}.json"))
                 print(f"\n=== agent ran {outcome['iterations']} iteration(s) ===")

@@ -133,7 +133,7 @@ class ORFSAgentTool(ChiaTool):
               orfs_home: str | None = None, branch_from: str | None = None,
               branch_through: str = "place", screen: dict | None = None,
               measure_clock: bool = False, parallel_slots: int = 1,
-              local_calls: bool = False):
+              local_calls: bool = False, surrogate=None, state=None):
         #: In-flight candidates: id -> ObjectRef.
         #:
         #: A plain dict, deliberately. An earlier version kept these in a Ray
@@ -163,6 +163,17 @@ class ORFSAgentTool(ChiaTool):
         #: actor. It could not go there anyway: a ChiaTool is pickled to reach
         #: its actor, and the actor has no import path for SwiftCTS.
         self.screen = screen
+        #: The LIVE fitted model, when one is reachable — which is only when a
+        #: driver calls these methods in-process. Over MCP the tool is pickled
+        #: into a Ray actor with no import path for SwiftCTS, so it stays None
+        #: and `predict_knobs` is simply not registered.
+        #:
+        #: The precomputed `screen` above answers "what looks good?" over a
+        #: fixed grid. It cannot answer "what about THIS one?" for a config the
+        #: agent invented, which is the question worth asking before spending
+        #: ~30 min on a build.
+        self.surrogate = surrogate
+        self.state = state
         self.measure_clock = measure_clock
         #: Threads each candidate may use. One `orfs` slot is about one core,
         #: so a candidate must not claim the whole machine: three candidates
@@ -191,6 +202,8 @@ class ORFSAgentTool(ChiaTool):
                  self.best_candidate]
         if self.screen:
             tools.append(self.screen_candidates)
+        if self.surrogate is not None and self.state is not None:
+            tools.append(self.predict_knobs)
         for fn in tools:
             self.mcp.add_tool(fn, name=f"{self.name}_{fn.__name__}")
 
@@ -371,6 +384,73 @@ class ORFSAgentTool(ChiaTool):
                  f"{', '.join(f'{k}={v}' for k, v in sorted(knobs.items()))}"
                  for knobs, value in ranked]
         return head + "\n" + "\n".join(lines)
+
+    def predict_knobs(self, knobs) -> str:
+        """Ask the fast model what it expects for configurations YOU choose.
+
+        Costs milliseconds instead of ~30 minutes, so use it to narrow a set of
+        ideas before spending a build on one. Unlike screen_candidates, which
+        ranks a fixed grid decided in advance, this answers for the exact
+        configurations you pass.
+
+        It is honest about its limits. The model observes only some knobs; any
+        others you pass are reported back as ignored, and two configurations
+        differing only in an ignored knob will predict identically. A tie is
+        not a reason to build both.
+
+        Args:
+            knobs: one knob dict, or a list of them (max 20 per call).
+        """
+        if isinstance(knobs, dict):
+            batch = [knobs]
+        elif isinstance(knobs, (list, tuple)):
+            batch = list(knobs)
+        else:
+            return "knobs must be a dict or a list of dicts."
+        if not batch:
+            return "no configurations given."
+        if len(batch) > 20:
+            return f"too many at once ({len(batch)}); pass at most 20."
+
+        clean, problems = [], []
+        for i, cfg in enumerate(batch):
+            if not isinstance(cfg, dict):
+                problems.append(f"[{i}] not a knob dict")
+                continue
+            ok, reason = self.policy.check(cfg)
+            if not ok:
+                problems.append(f"[{i}] {reason}")
+                continue
+            clean.append(cfg)
+        if not clean:
+            return "nothing predictable:\n" + "\n".join(f"  {p}" for p in problems)
+
+        observed = set(getattr(self.surrogate, "domain", {}) or {})
+        try:
+            preds = self.surrogate.predict(self.state, clean)
+        except Exception as exc:                       # a surrogate is advisory
+            return f"the model could not predict these: {exc}"
+
+        lines = [f"{self.surrogate.name} predicts (estimates, not measurements):"]
+        for cfg, p in zip(clean, preds):
+            vals = ", ".join(f"{k}={v:.6g}" for k, v in sorted(p.values.items()))
+            shown = ", ".join(f"{k}={v}" for k, v in sorted(cfg.items()))
+            lines.append(f"  {shown}")
+            lines.append(f"      -> {vals or '(nothing this model predicts)'}")
+            ignored = sorted(set(cfg) - observed)
+            if ignored:
+                lines.append(f"      ignored by this model: {', '.join(ignored)}")
+            outside = [k for k in set(cfg) & observed
+                       if not (self.surrogate.domain[k][0] <= float(cfg[k])
+                               <= self.surrogate.domain[k][1])]
+            if outside:
+                lines.append(f"      OUTSIDE the fitted range, extrapolated: "
+                             f"{', '.join(sorted(outside))}")
+        if problems:
+            lines.append("could not predict:")
+            lines += [f"  {p}" for p in problems]
+        lines.append("Only a real build settles anything — propose_candidate to confirm.")
+        return "\n".join(lines)
 
     def past_failures(self, limit: int = 10) -> str:
         """Configurations already known not to build, and why.
