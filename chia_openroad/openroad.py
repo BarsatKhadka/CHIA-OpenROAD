@@ -591,12 +591,22 @@ def earliest_affected_stage(knob_names) -> str | None:
     return min(stages, key=STAGE_ORDER.index)
 
 
-def _read_knob_manifest(work_home: str) -> dict[str, str]:
+def _read_knob_manifest(work_home: str) -> dict[str, str] | None:
+    """The knobs that built this tree, or None if there is no record.
+
+    None and {} mean different things and the difference is a correctness bug
+    if collapsed. {} means "built, with no knobs" — so any knob supplied now is
+    a change. None means "no record at all", which is either a fresh tree
+    (nothing to invalidate) or a tree branched from a parent whose manifest was
+    missing. Returning {} for both made the caller's `if changed and prior`
+    guard skip invalidation for every candidate branched off the shared
+    placement, and ORFS then reused a floorplan the knobs should have rebuilt.
+    """
     try:
         with open(os.path.join(work_home, KNOB_MANIFEST)) as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError):
-        return {}
+        return None
 
 
 def _write_knob_manifest(work_home: str, knobs: dict[str, str]) -> None:
@@ -923,9 +933,16 @@ class OpenROADNode(ColocatedNode):
         invalidated: list[str] = []
         if not force_rebuild:
             prior = _read_knob_manifest(work_home)
-            changed = {k for k in set(prior) | set(clean_knobs)
-                       if prior.get(k) != clean_knobs.get(k)}
-            if changed and prior:
+            if prior is None:
+                # No record of what produced the artifacts sitting here. On a
+                # fresh tree there are none and this is a no-op; on a branched
+                # tree it is the safe reading — assume every knob we are about
+                # to set differs from whatever built it.
+                changed = set(clean_knobs)
+            else:
+                changed = {k for k in set(prior) | set(clean_knobs)
+                           if prior.get(k) != clean_knobs.get(k)}
+            if changed:
                 invalidated_from = earliest_affected_stage(changed)
                 if invalidated_from:
                     invalidated = _invalidate_from(dirs, invalidated_from)
@@ -1090,10 +1107,16 @@ class OpenROADNode(ColocatedNode):
                 copied += 1
                 total_bytes += os.path.getsize(source)
 
+        # Always leave a manifest, even when the parent has none: the child now
+        # holds the parent's artifacts, and a child that cannot say what built
+        # them cannot invalidate them correctly. An absent parent manifest means
+        # the parent took no knobs, so {} is the honest record.
+        os.makedirs(work_home, exist_ok=True)
         manifest = os.path.join(base_work_home, KNOB_MANIFEST)
         if os.path.exists(manifest):
-            os.makedirs(work_home, exist_ok=True)
             shutil.copy2(manifest, os.path.join(work_home, KNOB_MANIFEST))
+        else:
+            _write_knob_manifest(work_home, {})
 
         logger.info("branched %s -> %s through %s: %d file(s), %.1f MB",
                     base_work_home, work_home, through_stage, copied,

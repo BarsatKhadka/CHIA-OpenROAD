@@ -121,5 +121,43 @@ hints = lg.hints()
 check("renders a usable prompt hint", len(hints) == 1 and "->" in hints[0], hints[0][:95])
 check("survives a reload", len(FailureLog("/tmp/failures.jsonl")) == 1)
 
+print("\n=== G. branch from a KNOB-FREE parent — the shared-placement case ===")
+# The regression sections A-C could not catch. They build the baseline *with*
+# knobs, so the manifest is non-empty and the old `if changed and prior` guard
+# happened to hold. The real loop builds one shared placement with NO knobs,
+# branches every candidate off it, and that guard then skipped invalidation for
+# all of them: ORFS reused a floorplan the candidate's own CORE_UTILIZATION
+# should have rebuilt, and 12 candidates reported a die area none had asked for.
+from chia_openroad.openroad import _read_knob_manifest, KNOB_MANIFEST
+branch = OpenROADNode.branch._chia_original
+BASE, CAND = "/work/invG_base", "/work/invG_cand"
+CR = f"{CAND}/results/sky130hd/gcd/base"
+def die(res):
+    return next((v for k, v in res.metrics.items() if k.endswith("design__die__area")), None)
+for d in (BASE, CAND):
+    shutil.rmtree(d, ignore_errors=True)
+
+rg = run("floorplan", work_home=BASE, design_config=DESIGN, knobs={})
+check("knob-free parent builds", rg.success, f"{rg.elapsed_s:.0f}s")
+check("absent and empty manifests are distinguishable",
+      _read_knob_manifest("/work/does_not_exist") is None
+      and _read_knob_manifest(BASE) == {})
+
+branch(BASE, CAND, DESIGN, through_stage="floorplan")
+check("branch always leaves a manifest", os.path.exists(f"{CAND}/{KNOB_MANIFEST}"),
+      repr(_read_knob_manifest(CAND)))
+before = os.path.getmtime(f"{CR}/2_floorplan.odb")
+time.sleep(1.1)
+
+rg2 = run("floorplan", work_home=CAND, design_config=DESIGN,
+          knobs={"CORE_UTILIZATION": 55})
+check("floorplan knob on a branched tree succeeds", rg2.success, f"{rg2.elapsed_s:.0f}s")
+check("invalidation fired", rg2.invalidated_from == "floorplan",
+      f"invalidated_from={rg2.invalidated_from}")
+check("2_floorplan.odb was actually rebuilt",
+      os.path.getmtime(f"{CR}/2_floorplan.odb") > before)
+check("die area moved — the knob reached the tool", die(rg2) != die(rg),
+      f"{die(rg)} -> {die(rg2)}")
+
 print("\n" + ("FAILED: " + ", ".join(fails) if fails else "ALL CHECKS PASSED"))
 sys.exit(1 if fails else 0)
