@@ -26,25 +26,19 @@
 The unit of execution is a single container image that is simultaneously a
 complete OpenROAD-flow-scripts (ORFS) installation and a valid CHIA worker. It
 is built on the upstream ORFS image and adds the Python environment CHIA
-requires --- Ray and \texttt{chia} on Python 3.10 --- so that a
-\texttt{@ChiaFunction} body runs \emph{inside} the container and invokes
+requires (Ray and \texttt{chia} on Python 3.10) so that a
+\texttt{@ChiaFunction} body runs inside the container and invokes
 \texttt{make} directly, rather than a host process shelling out to
-\texttt{docker run}.
+\texttt{docker run}. Building the image first forces the local and cluster
+execution models to be identical from the start.
 
-That distinction decides the shape of everything above it. A host-side wrapper
-would work on a laptop and would have to be rewritten the moment it met a real
-worker, because on a CHIA cluster the function body already executes on the
-worker. Building the image first forces the local and cluster execution models
-to be identical from the start.
-
-One detail is worth recording because it is invisible until it fails. ORFS's
-helper scripts import \texttt{yaml} and \texttt{pandas} from whatever
-\texttt{python3} resolves to, via \texttt{PYTHON\_EXE ?= \$(shell command -v
-python3)}. Once CHIA's conda environment is active --- which is how the Ray
-worker starts --- that resolves to conda's interpreter, which does not have
-them. Pinning \texttt{PYTHON\_EXE} to the system interpreter in the image keeps
-ORFS's scripts on the interpreter they were built against while CHIA keeps its
-own.
+\textbf{Failure mode:} ORFS's helper scripts import \texttt{yaml} and
+\texttt{pandas} from whatever \texttt{python3} resolves to, via
+\texttt{PYTHON\_EXE ?= \$(shell command -v python3)}. Once CHIA's conda
+environment is active, which is how the Ray worker starts, that resolves to
+conda's interpreter, which does not have them. Pinning \texttt{PYTHON\_EXE} to
+the system interpreter in the image keeps ORFS's scripts on the interpreter
+they were built against while CHIA keeps its own.
 
 % ---------------------------------------------------------------- NEXT -----
 % \subsection{Running a stage}   -- OpenROADNode: knobs in, metrics out
