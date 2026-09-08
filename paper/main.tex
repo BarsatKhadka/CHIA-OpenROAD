@@ -4,7 +4,13 @@
 % boundary -> surrogate -> loop -> results. Context and contributions get
 % written LAST, once we can see what the system actually turned out to be.
 \documentclass[sigconf,nonacm]{acmart}
+
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+
 \begin{document}
+
+
 
 \title{CHIA-OpenROAD: An Agentic RTL-to-GDS Loop with a Replaceable
        Surrogate Evaluator}
@@ -29,8 +35,9 @@ is built on the upstream ORFS image and adds the Python environment CHIA
 requires (Ray and \texttt{chia} on Python 3.10) so that a
 \texttt{@ChiaFunction} body runs inside the container and invokes
 \texttt{make} directly, rather than a host process shelling out to
-\texttt{docker run}. Building the image first forces the local and cluster
-execution models to be identical from the start.
+\texttt{docker run}.
+Building the image first forces the local and cluster execution models
+to be identical from the start.
 
 \textbf{Failure mode:} ORFS's helper scripts import \texttt{yaml} and
 \texttt{pandas} from whatever \texttt{python3} resolves to, via
@@ -39,6 +46,46 @@ environment is active, which is how the Ray worker starts, that resolves to
 conda's interpreter, which does not have them. Pinning \texttt{PYTHON\_EXE} to
 the system interpreter in the image keeps ORFS's scripts on the interpreter
 they were built against while CHIA keeps its own.
+
+
+\begin{figure*}[t]\centering
+\begin{tikzpicture}[
+  font=\small,
+  stage/.style={draw,rounded corners=1pt,minimum height=7mm,minimum width=15mm,
+                align=center,inner sep=2pt},
+  ck/.style={font=\scriptsize\ttfamily,text=black!60},
+  t/.style={font=\scriptsize},
+  ar/.style={-{Latex[length=1.6mm]},shorten >=1pt,shorten <=1pt},
+]
+\def\stagesep{6mm}
+\node[stage] (syn) {synth};
+\node[stage,right=\stagesep of syn] (fp) {floorplan};
+\node[stage,right=\stagesep of fp]  (pl) {place};
+\node[stage,right=\stagesep of pl]  (ct) {cts};
+\node[stage,right=\stagesep of ct]  (gr) {global\\route};
+\node[stage,right=\stagesep of gr,fill=black!12] (dr) {detailed\\route};
+\node[stage,right=\stagesep of dr]  (fi) {finish};
+
+\foreach \a/\b in {syn/fp,fp/pl,pl/ct,ct/gr,gr/dr,dr/fi}
+  \draw[ar] (\a) -- (\b);
+
+\foreach \n/\c in {syn/1\_synth.odb, fp/2\_floorplan.odb, pl/3\_place.odb,
+                   ct/4\_cts.odb, gr/5\_1\_grt.odb, dr/5\_route.odb,
+                   fi/6\_final.gds}
+  \node[ck,below=1.2mm of \n] {\c};
+
+\foreach \n/\s in {syn/51, fp/3, pl/44, ct/23, gr/270, dr/1306, fi/24}
+  \node[t,above=1.0mm of \n] {\s\,s};
+
+\node[t,anchor=west,text=black!60] at ([yshift=-9mm]syn.south west)
+  {A knob first read at stage $k$ invalidates every checkpoint from $k$ onward.};
+\end{tikzpicture}
+\caption{The ORFS stage chain, with the checkpoint each stage leaves and its
+measured cost on aes/sky130hd at 8 threads (1721\,s total). Detailed routing is
+76\% of the flow, so any knob change that reaches it costs close to a full
+build.}
+\label{fig:stages}
+\end{figure*}
 
 % ---------------------------------------------------------------- NEXT -----
 % \subsection{Running a stage}   -- OpenROADNode: knobs in, metrics out

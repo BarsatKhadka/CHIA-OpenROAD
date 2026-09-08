@@ -22,3 +22,7 @@ reports/
 
 # ORFS run trees (checkpoints, manifests, logs)
 experiments/smoke/
+paper/main.pdf
+paper/*.aux
+paper/*.log
+paper/*.out
