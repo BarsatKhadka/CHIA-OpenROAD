@@ -420,6 +420,24 @@ class ORFSAgentTool(ChiaTool):
                  for knobs, value in ranked]
         return head + "\n" + "\n".join(lines)
 
+    # A fitted model must never enter the pickle. ChiaTool is serialised to
+    # reach its MCP actor at construction time -- before any in-process call --
+    # and that actor has no import path for a plugin's dependencies:
+    #   ModuleNotFoundError: No module named 'swiftcts'
+    # raised inside _ToolServerActor's deserialize, killing the run at startup.
+    # Being called in-process later does not help: the pickle already happened.
+    #
+    # So the driver's copy holds the models and answers predict_knobs; the
+    # actor's copy has none and simply does not offer that tool. Same object,
+    # different reach, which is the honest shape -- a model that cannot be
+    # shipped should not pretend to be available where it cannot run.
+    def __getstate__(self):
+        state = super().__getstate__()
+        state["surrogates"] = []
+        state["surrogate"] = None
+        state["state"] = None
+        return state
+
     def describe_surrogates(self) -> str:
         """What fast models are available, what each reads, and what it predicts.
 
@@ -475,6 +493,10 @@ class ORFSAgentTool(ChiaTool):
         Args:
             knobs: one knob dict, or a list of them (max 20 per call).
         """
+        if not self.surrogates:
+            # The actor's copy, or a loop wired without models.
+            return ("no fast model is reachable here; every judgement needs a "
+                    "real build via propose_candidate.")
         if isinstance(knobs, dict):
             batch = [knobs]
         elif isinstance(knobs, (list, tuple)):
