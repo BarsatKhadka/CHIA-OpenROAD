@@ -24,32 +24,121 @@
 \maketitle
 
 \section{Context and contributions}
-% Agent proposes, programmatic evaluation decides. Say what is new: not that an
-% LLM tunes knobs (AutoTuner does), but that the evaluator is a REPLACEABLE
-% component with a declared contract, and the agent is told what each model
-% cannot see.
+
+Tuning a physical-design flow is a search problem with an expensive oracle. On
+\texttt{aes}/\texttt{sky130hd} a single RTL-to-GDS run takes roughly half an
+hour on 8 threads, and 78\% of that is detailed routing. ORFS exposes 249 make
+variables; any of them can change the answer, and almost any change forces a
+full re-route. Automated tuners such as ORFS AutoTuner already sweep this
+space. An LLM proposing knob values is therefore not, by itself, interesting.
+
+What we argue is interesting is the shape of the loop around it. We build an
+agentic RTL-to-GDS loop on CHIA in which (i) the agent proposes and
+\emph{programmatic evaluation decides}, enforced in code rather than in a
+prompt; (ii) the cheap evaluator is a \emph{replaceable component} behind a
+declared contract, not a model the loop is built around; and (iii) the agent is
+told explicitly what each cheap model \emph{cannot see} --- which knobs it
+ignores, which values fall outside its fitted range, and when a prediction is
+anchored to a design state the proposed configuration would not produce.
+
+Concretely, this paper contributes: a surrogate interface with three unlike
+implementations, one a previously published CTS surrogate developed before and
+independently of this interface; a knob
+manifest that makes stage-scoped invalidation correct on a build system that
+does not invalidate on variable change; and a set of measured failures, each of
+which silently corrupts results rather than raising an error.
 
 \section{The loop}
-% Fig.1: ledger -> prompt -> proposals -> parallel builds -> ledger.
-% Say plainly: the agent is stateless between iterations; memory is a SQLite
-% ledger rendered as markdown. Cite CHIA's gem5 pattern. Say why: holding a
-% session across an hour-long tool call failed five successive runs.
-% Fast tools (SQLite, fitted models) are callable inside a turn; the build is not.
+
+\begin{figure*}[t]\centering\small
+\begin{tabular}{l}
+\hline
+\texttt{ledger (SQLite)} $\;\longrightarrow\;$ rendered as markdown $\;\longrightarrow\;$ one model turn \\
+\quad within the turn: eight read-only tools, milliseconds each \\
+\texttt{model emits JSON knob dicts} $\;\longrightarrow\;$ driver parses, validates against policy \\
+\texttt{driver calls propose\_candidate()} $\;\longrightarrow\;$ Ray builds $N$ candidates in parallel ($\sim$30\,min) \\
+\texttt{results} $\;\longrightarrow\;$ \texttt{ledger} $\;\longrightarrow\;$ next iteration \\
+\hline
+\end{tabular}
+\caption{One iteration. The agent is stateless between iterations; all memory
+is the ledger. The build is the only slow step and it happens outside the
+model's turn.}
+\end{figure*}
+
+The agent holds no state between iterations. Each iteration renders the
+candidate ledger --- every configuration built, what it was derived from, its
+metrics, and every configuration that failed and why --- as markdown, and that
+text is the entire prompt. The model replies with brief reasoning and one JSON
+object per line; the driver parses those, validates each against the knob
+policy, and dispatches the survivors. This is the shape CHIA's own 202-iteration
+gem5 study uses: short model turns, expensive deterministic work in between.
+
+We arrived at it by failing the other way. An earlier version held one agent
+session open across the build, and five successive runs failed for reasons
+unrelated to the agent's reasoning: the wrapped loop ignored its timeout and
+hung for 2\,h\,10\,m twice while a candidate completed underneath and went
+uncollected; a reply carrying no function call silently ended the session; and
+because a \texttt{ChiaTool} is pickled to reach its MCP actor, tool state
+existed in two copies and the driver's view of in-flight work was always empty.
+
+The lesson was not that tool calls are harmful but that \emph{slow} tool calls
+are. Of the eight tools the agent may call, seven are SQLite queries or fitted
+models costing milliseconds, and it may call them freely inside a turn to
+inspect prior failures, rank built candidates, or price a shortlist it is
+considering. The one tool that blocks for half an hour --- waiting on a build
+--- is not exposed. Building belongs to the driver.
 
 \section{The trust boundary}
-% Eight read-only tools. run_stage unreachable. No tool runs DRC/LVS, parses a
-% report, supplies its own metric, or passes force_rebuild/extra_make_args.
-% Mirrors CHIA's ISA and critical-path studies.
+
+If the agent could run DRC and report the verdict itself, a reader would have no
+way to separate a clean layout from a model that talked itself into claiming
+one. The result would be unfalsifiable. We therefore enforce the split in code:
+there is no function the agent can call that runs \texttt{drc} or \texttt{lvs},
+parses a report, supplies a metric it computed itself, sets a knob outside the
+legal set, or passes \texttt{force\_rebuild}, \texttt{allow\_unknown\_knobs} or
+\texttt{extra\_make\_args} --- the escape hatches that would let it bypass
+invalidation or append arguments to a \texttt{make} command line. The function
+that invokes \texttt{make} is not reachable from any exposed tool.
+
+Feasibility is likewise not the agent's to declare. Whether a configuration
+builds is decided by ORFS; a failure is a measurement, and it is recorded with
+the tool's own diagnostic --- for example \texttt{5\_1\_grt: Global routing
+finished with congestion} --- so the next iteration reasons from what the tool
+said rather than from what the model inferred. This mirrors CHIA's own case
+studies, which wall their agents off from the checks that certify a result.
 
 \section{The surrogate socket}
-% THE deliverable. The ABC and why each field exists:
-%   observes_stage -- what must be built before the model can speak
-%   requires       -- which artifacts to dump
-%   predicts       -- kind "orfs_metric" MUST name a real ORFS key, else the
-%                     model is never checked and looks perfect forever
-%   domain         -- fitted range; the loop intersects it with legal knobs
-% Generality evidence: feasibility.py was written after the ABC was frozen and
-% required no change to it. Table 1.
+
+The deliverable is the interface, not any model behind it. An interface designed
+while looking at one model tends to fit exactly that model, so we tested
+generality by writing a second implementation as unlike the first as we could:
+a \emph{feasibility} predictor answering ``will this build at all?'' rather than
+another quality model. The two are economically different as well --- a quality
+model shaves a flow, a feasibility model skips one --- and they share one
+socket. The feasibility plugin was written after the interface was frozen and
+required no change to it.
+
+An author implements one method, \texttt{\_predict}. Everything else is
+declaration, and two of the declared fields exist for reasons that only surface
+in use. \texttt{predicts} maps a name to a kind; a prediction of kind
+\texttt{orfs\_metric} must name a real key of ORFS's report, because a
+mis-spelled metric is never compared against ground truth and the model
+therefore appears perfect forever. \texttt{domain} records the knob ranges the
+model was fitted over, because a learned model is only trustworthy inside its
+training range and has no way to say when it is outside one: SwiftCTS was fitted
+over cluster sizes 12--30 while ORFS accepts far more, so the loop intersects
+the two and simply does not ask. A \texttt{conformance\_check} exercises these
+before a model is wired into a loop that takes an hour to fail.
+
+\texttt{observes\_stage} declares what must exist before a model can speak, and
+it carries an obligation we initially missed. A model observing \texttt{place}
+predicts \emph{from a finished placement}; the placement it reads is the shared
+one every candidate branches from. A configuration that changes anything at or
+before placement would produce a different placement, so the prediction
+describes a design that will not be built. In one 12-candidate run every
+candidate set \texttt{CORE\_UTILIZATION}, so every prediction was anchored to a
+stand-in and nothing said so. The agent is now told, per model and per
+configuration, when this is the case.
 
 \begin{table}[t]\centering\small
 \caption{Three unlike plugins in the same socket.}
@@ -103,7 +192,45 @@ finish          &   24 & 1.4\% \\
 % error next to not building.
 
 \section{What broke, and what it cost}
-% Strongest section. Each row is measured, not anecdotal.
+
+Every failure below shares a property: it produces a plausible number rather
+than an error. We report them because a loop that searches automatically will
+hit all of them, and none announces itself.
+
+\textbf{The build system does not invalidate on knob change.} \texttt{make}
+compares file timestamps, and a knob is not a file. Verified with
+\texttt{make -n}: after \texttt{CORE\_UTILIZATION=45}, after
+\texttt{CTS\_CLUSTER\_SIZE=20}, and after setting a variable that does not
+exist, \texttt{make} reports ``all up to date''. A search loop built naively on
+this asks for a different design, waits half an hour, and is handed the previous
+one relabelled. We record the knobs that produced each work directory, diff
+against them on the next call, and delete every artifact from the earliest
+affected stage onward. The failure recurred once in a subtler form: the record
+could not distinguish ``no manifest'' from ``built with no knobs'', so every
+candidate branching from a knob-free shared placement skipped invalidation and
+twelve candidates reported a floorplan none had requested.
+
+\textbf{Sign-off can pass by exiting zero.} The \texttt{sky130hd} LVS deck has
+its \texttt{raise} commented out, so \texttt{make lvs} exits 0 whether the
+netlists match or not. Trusting the return code certifies a layout as clean when
+it is not; the verdict must be read from the report.
+
+\textbf{One bad proposal can stall an iteration indefinitely.} An iteration
+cannot advance until every candidate returns, and \texttt{run\_stage} defaulted
+to a 24-hour limit. A narrow, densely packed die
+(\texttt{CORE\_ASPECT\_RATIO}=0.7, \texttt{CORE\_UTILIZATION}=45) sat in
+detailed routing at ``90\% with 243 violations'' for 3\,h\,26\,m while its three
+siblings finished in 28--53 minutes. We cap a stage at roughly three times the
+median build and record the timeout as a failure naming the step that ran long,
+because ``did not route in 90 minutes'' is information the agent can use and
+``unknown'' is not.
+
+\textbf{A fitted model cannot cross into a Ray actor.} A \texttt{ChiaTool} is
+serialised to reach its MCP actor at construction, and that actor has no import
+path for a plugin's dependencies. The run dies at startup with
+\texttt{ModuleNotFoundError} inside a deserialisation trace that names neither
+the tool nor the model. The driver's copy holds the models; the actor's copy
+holds none and reports that it cannot answer.
 
 \begin{table}[t]\centering\small
 \caption{Failures found while building the loop.}
@@ -128,10 +255,21 @@ One unroutable floorplan; \texttt{run\_stage} defaulted to a 24\,h timeout. \\
 \end{table}
 
 \section{Limitations}
-% Say all of it plainly: n=1 design; SwiftCTS usable for wirelength only
-% (power rank_corr 0.00 without SAIF, skew not produced); LVS blocked by ORFS
-% collateral; 3 iterations is a short search; knob ranges uncalibrated for aes,
-% which cost 3 of 12 candidates.
+
+Results are from a single design, \texttt{aes}/\texttt{sky130hd}; we make no
+claim about how the search behaves elsewhere. The surrogate arm screens on
+clock wirelength only: on this design SwiftCTS tracks measured wirelength to
+2.6--3.1\% mean absolute error, but ORFS produces no SAIF, so its power
+prediction has rank correlation 0.00 and is unusable, and clock skew is not
+produced at all. An arm labelled ``with a surrogate'' that screens one of three
+declared objectives should say so.
+
+Sign-off is partial: DRC is clean, LVS is blocked by ORFS's own collateral ---
+\texttt{sky130hd.cdl} is in a dialect the packaged KLayout cannot read, and past
+that the netlists do not match. Three iterations is a short search. Finally, the
+knob ranges handed to the agent were nominal rather than calibrated for this
+design; ORFS publishes no ranges and the feasible band is design-specific, and
+this cost 3 of 12 candidates in the run reported above.
 
 \section*{Availability}
 % Repo URL, the exact command, the commit hash used for the results.
