@@ -1,15 +1,8 @@
 % CHIA-OpenROAD --- A3 CHIA Hackathon technical write-up (4 pages, ACM sigconf).
-% Swap to IEEEtran if the organisers ask for it; section budget is unchanged.
 %
-% BUDGET (two columns, 4 pages ~ 4000 words + figures). Overrunning page 4 is
-% the usual failure, so the numbers below are column-inches, not suggestions:
-%   1. Context + contributions          0.75 col   -- what and why, no survey
-%   2. The loop                         1.5  col   + Fig.1 (double-column)
-%   3. Trust boundary                   0.75 col
-%   4. Surrogate socket                 1.5  col   -- THE deliverable
-%   5. Results                          1.5  col   + Tab.2, Tab.3
-%   6. What broke                       1.5  col   + Tab.4  -- your best material
-%   7. Limitations + availability       0.75 col
+% Written bottom-up, one piece at a time: container -> node -> cluster ->
+% boundary -> surrogate -> loop -> results. Context and contributions get
+% written LAST, once we can see what the system actually turned out to be.
 \documentclass[sigconf,nonacm]{acmart}
 \begin{document}
 
@@ -19,259 +12,48 @@
 \affiliation{\institution{}\country{}}
 
 \begin{abstract}
-% 150 words. State the socket as the contribution, not SwiftCTS.
+% LAST.
 \end{abstract}
 \maketitle
 
-\section{Context and contributions}
-
-Tuning a physical-design flow is a search problem with an expensive oracle. On
-\texttt{aes}/\texttt{sky130hd} a single RTL-to-GDS run takes roughly half an
-hour on 8 threads, and 78\% of that is detailed routing. ORFS exposes 249 make
-variables; any of them can change the answer, and almost any change forces a
-full re-route. Automated tuners such as ORFS AutoTuner already sweep this
-space. An LLM proposing knob values is therefore not, by itself, interesting.
-
-What we argue is interesting is the shape of the loop around it. We build an
-agentic RTL-to-GDS loop on CHIA in which (i) the agent proposes and
-\emph{programmatic evaluation decides}, enforced in code rather than in a
-prompt; (ii) the cheap evaluator is a \emph{replaceable component} behind a
-declared contract, not a model the loop is built around; and (iii) the agent is
-told explicitly what each cheap model \emph{cannot see} --- which knobs it
-ignores, which values fall outside its fitted range, and when a prediction is
-anchored to a design state the proposed configuration would not produce.
-
-Concretely, this paper contributes: a surrogate interface with three unlike
-implementations, one a previously published CTS surrogate developed before and
-independently of this interface; a knob
-manifest that makes stage-scoped invalidation correct on a build system that
-does not invalidate on variable change; and a set of measured failures, each of
-which silently corrupts results rather than raising an error.
+% ---------------------------------------------------------------- LAST -----
+% \section{Context and contributions}
 
 \section{The loop}
 
-\begin{figure*}[t]\centering\small
-\begin{tabular}{l}
-\hline
-\texttt{ledger (SQLite)} $\;\longrightarrow\;$ rendered as markdown $\;\longrightarrow\;$ one model turn \\
-\quad within the turn: eight read-only tools, milliseconds each \\
-\texttt{model emits JSON knob dicts} $\;\longrightarrow\;$ driver parses, validates against policy \\
-\texttt{driver calls propose\_candidate()} $\;\longrightarrow\;$ Ray builds $N$ candidates in parallel ($\sim$30\,min) \\
-\texttt{results} $\;\longrightarrow\;$ \texttt{ledger} $\;\longrightarrow\;$ next iteration \\
-\hline
-\end{tabular}
-\caption{One iteration. The agent is stateless between iterations; all memory
-is the ledger. The build is the only slow step and it happens outside the
-model's turn.}
-\end{figure*}
+\subsection{Where the flow runs}
 
-The agent holds no state between iterations. Each iteration renders the
-candidate ledger --- every configuration built, what it was derived from, its
-metrics, and every configuration that failed and why --- as markdown, and that
-text is the entire prompt. The model replies with brief reasoning and one JSON
-object per line; the driver parses those, validates each against the knob
-policy, and dispatches the survivors. This is the shape CHIA's own 202-iteration
-gem5 study uses: short model turns, expensive deterministic work in between.
+The unit of execution is a single container image that is simultaneously a
+complete OpenROAD-flow-scripts (ORFS) installation and a valid CHIA worker. It
+is built on the upstream ORFS image and adds the Python environment CHIA
+requires --- Ray and \texttt{chia} on Python 3.10 --- so that a
+\texttt{@ChiaFunction} body runs \emph{inside} the container and invokes
+\texttt{make} directly, rather than a host process shelling out to
+\texttt{docker run}.
 
-We arrived at it by failing the other way. An earlier version held one agent
-session open across the build, and five successive runs failed for reasons
-unrelated to the agent's reasoning: the wrapped loop ignored its timeout and
-hung for 2\,h\,10\,m twice while a candidate completed underneath and went
-uncollected; a reply carrying no function call silently ended the session; and
-because a \texttt{ChiaTool} is pickled to reach its MCP actor, tool state
-existed in two copies and the driver's view of in-flight work was always empty.
+That distinction decides the shape of everything above it. A host-side wrapper
+would work on a laptop and would have to be rewritten the moment it met a real
+worker, because on a CHIA cluster the function body already executes on the
+worker. Building the image first forces the local and cluster execution models
+to be identical from the start.
 
-The lesson was not that tool calls are harmful but that \emph{slow} tool calls
-are. Of the eight tools the agent may call, seven are SQLite queries or fitted
-models costing milliseconds, and it may call them freely inside a turn to
-inspect prior failures, rank built candidates, or price a shortlist it is
-considering. The one tool that blocks for half an hour --- waiting on a build
---- is not exposed. Building belongs to the driver.
+One detail is worth recording because it is invisible until it fails. ORFS's
+helper scripts import \texttt{yaml} and \texttt{pandas} from whatever
+\texttt{python3} resolves to, via \texttt{PYTHON\_EXE ?= \$(shell command -v
+python3)}. Once CHIA's conda environment is active --- which is how the Ray
+worker starts --- that resolves to conda's interpreter, which does not have
+them. Pinning \texttt{PYTHON\_EXE} to the system interpreter in the image keeps
+ORFS's scripts on the interpreter they were built against while CHIA keeps its
+own.
 
-\section{The trust boundary}
-
-If the agent could run DRC and report the verdict itself, a reader would have no
-way to separate a clean layout from a model that talked itself into claiming
-one. The result would be unfalsifiable. We therefore enforce the split in code:
-there is no function the agent can call that runs \texttt{drc} or \texttt{lvs},
-parses a report, supplies a metric it computed itself, sets a knob outside the
-legal set, or passes \texttt{force\_rebuild}, \texttt{allow\_unknown\_knobs} or
-\texttt{extra\_make\_args} --- the escape hatches that would let it bypass
-invalidation or append arguments to a \texttt{make} command line. The function
-that invokes \texttt{make} is not reachable from any exposed tool.
-
-Feasibility is likewise not the agent's to declare. Whether a configuration
-builds is decided by ORFS; a failure is a measurement, and it is recorded with
-the tool's own diagnostic --- for example \texttt{5\_1\_grt: Global routing
-finished with congestion} --- so the next iteration reasons from what the tool
-said rather than from what the model inferred. This mirrors CHIA's own case
-studies, which wall their agents off from the checks that certify a result.
-
-\section{The surrogate socket}
-
-The deliverable is the interface, not any model behind it. An interface designed
-while looking at one model tends to fit exactly that model, so we tested
-generality by writing a second implementation as unlike the first as we could:
-a \emph{feasibility} predictor answering ``will this build at all?'' rather than
-another quality model. The two are economically different as well --- a quality
-model shaves a flow, a feasibility model skips one --- and they share one
-socket. The feasibility plugin was written after the interface was frozen and
-required no change to it.
-
-An author implements one method, \texttt{\_predict}. Everything else is
-declaration, and two of the declared fields exist for reasons that only surface
-in use. \texttt{predicts} maps a name to a kind; a prediction of kind
-\texttt{orfs\_metric} must name a real key of ORFS's report, because a
-mis-spelled metric is never compared against ground truth and the model
-therefore appears perfect forever. \texttt{domain} records the knob ranges the
-model was fitted over, because a learned model is only trustworthy inside its
-training range and has no way to say when it is outside one: SwiftCTS was fitted
-over cluster sizes 12--30 while ORFS accepts far more, so the loop intersects
-the two and simply does not ask. A \texttt{conformance\_check} exercises these
-before a model is wired into a loop that takes an hour to fail.
-
-\texttt{observes\_stage} declares what must exist before a model can speak, and
-it carries an obligation we initially missed. A model observing \texttt{place}
-predicts \emph{from a finished placement}; the placement it reads is the shared
-one every candidate branches from. A configuration that changes anything at or
-before placement would produce a different placement, so the prediction
-describes a design that will not be built. In one 12-candidate run every
-candidate set \texttt{CORE\_UTILIZATION}, so every prediction was anchored to a
-stand-in and nothing said so. The agent is now told, per model and per
-configuration, when this is the case.
-
-\begin{table}[t]\centering\small
-\caption{Three unlike plugins in the same socket.}
-\begin{tabular}{llll}
-\hline
-Plugin & Observes & Requires & Predicts \\
-\hline
-SwiftCTS    & \texttt{place} & DEF, timing & clock wirelength \\
-Feasibility & ---            & ---         & $p(\textrm{builds})$ \\
-Template    & \texttt{place} & DEF         & clock skew \\
-\hline
-\end{tabular}
-\end{table}
-
-\section{Results}
-% Design: aes / sky130hd. Model: gemini-2.5-flash. 3 iterations x 4 candidates.
-% Say the objective was worst_slack and that area/power moved too (+6% each) --
-% do not report slack alone.
-
-\begin{table}[t]\centering\small
-\caption{Agent search on aes/sky130hd, 3 iterations of 4 candidates.}
-\begin{tabular}{lrrl}
-\hline
-Iteration & Best worst slack (ns) & Built/Failed & Winning knob \\
-\hline
-1 & $-0.0800$ & 3/1 & \texttt{CORE\_UTILIZATION}=30 \\
-2 & $-0.0472$ & 3/1 & \texttt{CORE\_UTILIZATION}=25 \\
-3 & $-0.0235$ & 3/1 & \texttt{CORE\_UTILIZATION}=25 \\
-\hline
-\end{tabular}
-\end{table}
-
-\begin{table}[t]\centering\small
-\caption{Where a flow's time goes (aes/sky130hd, 8 threads).}
-\begin{tabular}{lrr}
-\hline
-Stage & Time (s) & Share \\
-\hline
-floorplan       &    3 & 0.2\% \\
-place           &   44 & 2.6\% \\
-CTS             &   23 & 1.4\% \\
-global route    &  270 & 16.2\% \\
-detailed route  & 1306 & 78.2\% \\
-finish          &   24 & 1.4\% \\
-\hline
-\end{tabular}
-\end{table}
-% Consequence, and it is the interesting one: branch-and-reuse saves ~3% on aes
-% because any knob change forces a re-route. Screening avoids the build
-% entirely -- 216 configurations ranked in 0.70 s. Compute reuse is a rounding
-% error next to not building.
-
-\section{What broke, and what it cost}
-
-Every failure below shares a property: it produces a plausible number rather
-than an error. We report them because a loop that searches automatically will
-hit all of them, and none announces itself.
-
-\textbf{The build system does not invalidate on knob change.} \texttt{make}
-compares file timestamps, and a knob is not a file. Verified with
-\texttt{make -n}: after \texttt{CORE\_UTILIZATION=45}, after
-\texttt{CTS\_CLUSTER\_SIZE=20}, and after setting a variable that does not
-exist, \texttt{make} reports ``all up to date''. A search loop built naively on
-this asks for a different design, waits half an hour, and is handed the previous
-one relabelled. We record the knobs that produced each work directory, diff
-against them on the next call, and delete every artifact from the earliest
-affected stage onward. The failure recurred once in a subtler form: the record
-could not distinguish ``no manifest'' from ``built with no knobs'', so every
-candidate branching from a knob-free shared placement skipped invalidation and
-twelve candidates reported a floorplan none had requested.
-
-\textbf{Sign-off can pass by exiting zero.} The \texttt{sky130hd} LVS deck has
-its \texttt{raise} commented out, so \texttt{make lvs} exits 0 whether the
-netlists match or not. Trusting the return code certifies a layout as clean when
-it is not; the verdict must be read from the report.
-
-\textbf{One bad proposal can stall an iteration indefinitely.} An iteration
-cannot advance until every candidate returns, and \texttt{run\_stage} defaulted
-to a 24-hour limit. A narrow, densely packed die
-(\texttt{CORE\_ASPECT\_RATIO}=0.7, \texttt{CORE\_UTILIZATION}=45) sat in
-detailed routing at ``90\% with 243 violations'' for 3\,h\,26\,m while its three
-siblings finished in 28--53 minutes. We cap a stage at roughly three times the
-median build and record the timeout as a failure naming the step that ran long,
-because ``did not route in 90 minutes'' is information the agent can use and
-``unknown'' is not.
-
-\textbf{A fitted model cannot cross into a Ray actor.} A \texttt{ChiaTool} is
-serialised to reach its MCP actor at construction, and that actor has no import
-path for a plugin's dependencies. The run dies at startup with
-\texttt{ModuleNotFoundError} inside a deserialisation trace that names neither
-the tool nor the model. The driver's copy holds the models; the actor's copy
-holds none and reports that it cannot answer.
-
-\begin{table}[t]\centering\small
-\caption{Failures found while building the loop.}
-\begin{tabular}{p{2.4cm}p{5.0cm}}
-\hline
-Symptom & Cause and cost \\
-\hline
-Identical results for different knobs &
-\texttt{make} does not invalidate on variable change; \texttt{make -n} reports
-``all up to date'' even for a knob that does not exist. 12 candidates reported
-a floorplan none had requested. \\
-Prediction for a design that will not exist &
-A \texttt{place}-stage model reads the \emph{shared} placement; any pre-CTS
-knob changes it. Every prediction in one run was anchored to a stand-in. \\
-LVS certified clean &
-\texttt{make lvs} exits 0 on mismatch; the deck's \texttt{raise} is commented
-out. Verdict must be read from the report. \\
-Iteration stalled 3.5\,h &
-One unroutable floorplan; \texttt{run\_stage} defaulted to a 24\,h timeout. \\
-\hline
-\end{tabular}
-\end{table}
-
-\section{Limitations}
-
-Results are from a single design, \texttt{aes}/\texttt{sky130hd}; we make no
-claim about how the search behaves elsewhere. The surrogate arm screens on
-clock wirelength only: on this design SwiftCTS tracks measured wirelength to
-2.6--3.1\% mean absolute error, but ORFS produces no SAIF, so its power
-prediction has rank correlation 0.00 and is unusable, and clock skew is not
-produced at all. An arm labelled ``with a surrogate'' that screens one of three
-declared objectives should say so.
-
-Sign-off is partial: DRC is clean, LVS is blocked by ORFS's own collateral ---
-\texttt{sky130hd.cdl} is in a dialect the packaged KLayout cannot read, and past
-that the netlists do not match. Three iterations is a short search. Finally, the
-knob ranges handed to the agent were nominal rather than calibrated for this
-design; ORFS publishes no ranges and the feasible band is design-specific, and
-this cost 3 of 12 candidates in the run reported above.
-
-\section*{Availability}
-% Repo URL, the exact command, the commit hash used for the results.
+% ---------------------------------------------------------------- NEXT -----
+% \subsection{Running a stage}   -- OpenROADNode: knobs in, metrics out
+% \subsection{Invalidation}      -- the knob manifest
+% \subsection{On a cluster}      -- the orfs resource, colocation
+% \section{The trust boundary}
+% \section{The surrogate socket}
+% \section{Results}
+% \section{What broke}
+% \section{Limitations}
 
 \end{document}
