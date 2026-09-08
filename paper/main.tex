@@ -87,35 +87,8 @@ build.}
 \label{fig:stages}
 \end{figure*}
 
-\subsection{Running a stage}
-
-A stage is a make target that reads the previous stage's checkpoint and writes
-its own (Figure~\ref{fig:stages}). The node exposes those targets as
-\texttt{@ChiaFunction} members taking a work directory, a design config and a
-knob mapping, and returning a structured result: the checkpoint written,
-elapsed time, and the metrics ORFS itself records in its per-stage JSON.
-Nothing is scraped from a log. Stages run with \texttt{-j1}, because parallel
-make races on the shared ODB targets; parallelism comes from running many
-candidates at once, not from within one.
-
-A knob is a make variable, so setting one is appending
-\texttt{CORE\_UTILIZATION=30} to the command line. Everything of interest
-happens before that. A knob name must match \texttt{\^{}[A-Z][A-Z0-9\_]*\$},
-because the key is placed in an \texttt{argv} and an unconstrained one could
-introduce a flag or a second target. It must appear among the 249 variables
-parsed from ORFS's own \texttt{variables.json}, so a typo is rejected in
-milliseconds rather than after twenty minutes of building. Values are rendered
-according to the declared type: a variable declared integer must be written
-\texttt{25}, since OpenROAD's Tcl raises a type error on \texttt{25.0}.
-
-\textbf{Failure mode:} \texttt{make lvs} exits 0 whether or not the netlists
-match. The \texttt{sky130hd} deck has its \texttt{raise} commented out and
-merely prints the error, so the return code certifies a layout that has failed
-LVS as clean. The verdict must be read from the report, not the exit status,
-and the same holds for DRC, whose violation count lives in
-\texttt{6\_drc.lyrdb}.
-
 % ---------------------------------------------------------------- NEXT -----
+% \subsection{Running a stage}   -- OpenROADNode: knobs in, metrics out
 % \subsection{Invalidation}      -- the knob manifest
 % \subsection{On a cluster}      -- the orfs resource, colocation
 % \section{The trust boundary}
