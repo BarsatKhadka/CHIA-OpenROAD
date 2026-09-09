@@ -16,10 +16,13 @@ cluster_name: chia_openroad
 available_node_types:
     orfs_worker:
         # A slot is one candidate. The node divides NUM_CORES by the slot
-        # count, so on a 32-vCPU machine 4 slots means 8 threads per candidate
-        # and no oversubscription. An earlier 4-vCPU run with 4 slots gave every
+        # count, so on a 32-vCPU machine 8 slots means 4 threads per candidate.
+        # Eight slots rather than four so two loop runs (four candidates each)
+        # can execute concurrently: the project is capped at 32 vCPUs globally
+        # by CPUS_ALL_REGIONS, so throughput has to come from splitting the
+        # machine rather than from adding cores. An earlier 4-vCPU run with 4 slots gave every
         # candidate 4 threads, drove load to 12.9, and made each ~3x slower.
-        resources: {"orfs": 4}
+        resources: {"orfs": 8}
         num_workers: 1
         compatible_ips: ["10.138.0.2"]
         docker:

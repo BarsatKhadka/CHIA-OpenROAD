@@ -394,6 +394,18 @@ def _read_signoff(stage: str, dirs: dict[str, str]) -> OrfsSignoff | None:
 #: minimum -- but tight enough to catch a wrong STA setup.
 _TIMING_TOLERANCE = 0.25
 
+#: Floor on that tolerance, as a fraction of the clock period.
+#:
+#: A purely relative tolerance is unusable when the design sits near timing
+#: closure, which is exactly where a tuning loop operates. On cb_picorv32 at
+#: 4.5 ns, ORFS reported -0.1356 ns and the extraction gave -0.0921 ns -- 32%
+#: apart relatively, but 0.97% of the clock period, and the artifact was
+#: withheld. The failures this check exists to catch are not subtle: a
+#: hand-rolled session on gcd reported -2243 ns against ORFS's -1.538 ns, and
+#: on aes an unparasitised session gave +0.51 ns against -0.88 ns. Both are
+#: large fractions of a clock period, so that is the scale to measure against.
+_TIMING_TOLERANCE_OF_CLOCK = 0.05
+
 
 def _timing_csv_agrees(csv_path: str, stage: str, dirs: dict[str, str]) -> bool:
     """Does an extracted slack CSV match what ORFS reported for the same stage?
@@ -428,12 +440,26 @@ def _timing_csv_agrees(csv_path: str, stage: str, dirs: dict[str, str]) -> bool:
         worst = min(float(r) for r in rows)
     except (OSError, ValueError):
         return False
-    scale = max(abs(reported), 1e-9)
-    if abs(worst - reported) / scale > _TIMING_TOLERANCE:
-        logger.error("extracted worst slack %.4f vs ORFS-reported %.4f (%.0fx off)",
-                     worst, reported, abs(worst / reported) if reported else 0)
+    allowed = _TIMING_TOLERANCE * abs(reported)
+    period = _clock_period(dirs)
+    if period:
+        allowed = max(allowed, _TIMING_TOLERANCE_OF_CLOCK * period)
+    if abs(worst - reported) > max(allowed, 1e-9):
+        logger.error("extracted worst slack %.4f vs ORFS-reported %.4f "
+                     "(differ by %.4f ns, allowed %.4f)",
+                     worst, reported, abs(worst - reported), allowed)
         return False
     return True
+
+
+def _clock_period(dirs: dict[str, str]) -> float | None:
+    """The clock period ORFS recorded for this run, in ns, if it wrote one."""
+    path = os.path.join(dirs.get("results", ""), "clock_period.txt")
+    try:
+        with open(path) as f:
+            return float(f.read().strip())
+    except (OSError, ValueError):
+        return None
 
 
 def _timing_setup(flow_dir: str, platform: str, stage: str) -> list[str]:

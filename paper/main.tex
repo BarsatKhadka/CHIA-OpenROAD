@@ -223,22 +223,22 @@ its timeout and hung for over two hours while the build completed underneath it
 and went uncollected. Five successive runs failed this way, none for reasons
 connected to the agent's reasoning. Hence , in this design fast tools belong inside the turn but the
 build belongs outside it.
-
-
 \section{The surrogate socket}
 
 Running a stage is expensive, so surrogate models have started being widely
 used in the flow.
 
 Every surrogate predicts from features of a completed stage, but which features
-differ from model to model. The loop therefore does not compute features. A
-model declares the stage it observes and the artifacts it requires, the loop
-builds that stage once and produces those artifacts, and the model extracts its
-own features from them. Figure~\ref{fig:socket} shows the form. Parsing sits
-inside \texttt{\_predict}, against the paths the loop supplies in
-\texttt{state.artifacts}, so a model needing a congestion map rather than a DEF
-changes only its own declaration and its own body.
-
+differ from model to model. We therefore do not compute features. A model
+declares the stage it observes and the files it needs, the loop produces those
+files, and the author writes the parsing inside the model.
+Figure~\ref{fig:socket} shows the form. The model returns one prediction per
+configuration. The agent invokes a model and gets a prediction back. Each iteration it also
+names a shortlist wider than it can afford to build, and the models price that
+shortlist before it commits. A grid of configurations is scored once in
+advance, so the agent can read off the best predicted combinations without
+asking for them. A prediction is trusted only inside the range the model was fitted on, so
+configurations outside that range are never sent to it.
 \begin{figure}[t]
 \begin{small}
 \begin{verbatim}
@@ -259,11 +259,21 @@ feature extraction happen inside the model.}
 \label{fig:socket}
 \end{figure}
 
+\textbf{Failure mode:} a fitted model cannot cross into the tool's MCP actor.
+The tool is serialised when that actor is constructed and the actor has no
+import path for a plugin's dependencies, so the run fails at startup with a
+missing-module error that names neither the tool nor the model. The driver's
+copy holds the models and answers prediction requests; the actor's copy holds
+none and says so.
+
+
+
 % ---------------------------------------------------------------- NEXT -----
 % \subsection{Running a stage}   -- OpenROADNode: knobs in, metrics out
 % \subsection{Invalidation}      -- the knob manifest
 % \subsection{On a cluster}      -- the orfs resource, colocation
 % \section{The trust boundary}
+% \section{The surrogate socket}
 % \section{Results}
 % \section{What broke}
 % \section{Limitations}
