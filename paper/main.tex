@@ -24,7 +24,14 @@
 
 % ---------------------------------------------------------------- LAST -----
 % \section{Context and contributions}
-
+\section{Context and Contributions}
+CHIA is an open framework from UC Berkeley for building agentic
+hardware/software co-design flows on a distributed Ray runtime~\cite{chia}. A
+workflow is ordinary Python. A \emph{node} is a class whose methods, marked
+\texttt{@ChiaFunction}, run on cluster workers, and a \texttt{ChiaTool} exposes
+a chosen set of capabilities to an agent over MCP. Its published case studies
+share the pattern of agent proposing and editing, and a trusted, AI-free
+evaluation decides whether the result is accepted. 
 \section{The loop}
 
 \subsection{Where the flow runs}
@@ -47,7 +54,71 @@ conda's interpreter, which does not have them. Pinning \texttt{PYTHON\_EXE} to
 the system interpreter in the image keeps ORFS's scripts on the interpreter
 they were built against while CHIA keeps its own.
 
+\subsection{Running a stage}
 
+Taking RTL to a GDSII is a fixed sequence of physical-design steps, and
+ORFS packages each as a make target that reads the previous step's checkpoint
+and writes its own (Figure~\ref{fig:stages}). A decision taken early constrains
+everything after it and every step leaves a checkpoint, so a flow can resume
+from any point rather than repeat. These stages are controlled through knobs:
+make variables that ORFS's scripts read as they run. There are 249 of them in
+the version used here (OpenROAD \texttt{26Q3-1817}), of which ORFS marks 18 as
+tunable, and each is read at a particular step, so changing one invalidates
+that step and every step after it. The flow is wrapped as a node, \texttt{OpenROADNode}. Its \texttt{run\_stage}
+member takes a work directory, a design configuration and a knob mapping
+to invoke the corresponding make target inside the container which returns the
+checkpoint written, the elapsed wall-clock time, and the metrics ORFS records
+in its per-stage JSON. No value is recovered by parsing log text.
+A knob reaches the flow as \texttt{KNOB\_NAME=VALUE} appended to that make
+command. Every knob is therefore checked against a small set of rules before
+invocation. A name must be upper-snake-case, since it is placed in an
+\texttt{argv} where an unconstrained key could introduce an additional flag or
+make target,  and it must appear among the 249 known variables
+(extracted from ORFS's own \texttt{variables.json} into a generated
+\texttt{knob\_specs} module), so a misspelling never reaches the flow.
+
+\textbf{Failure mode:} \texttt{make lvs} exits 0 whether or not the netlists
+match. The \texttt{sky130hd} deck has its \texttt{raise} commented out and
+merely prints the error, so the return code certifies a layout that has failed
+LVS as clean. So , the verdict of lvs must be read from the report and not the exit status.
+
+\subsection{Invalidation}
+
+While changing a knob must invalidate the step that reads it and every step
+after, the build system does not implement this. Make decides staleness by
+comparing file timestamps, and a knob is not a file. This was confirmed with
+\texttt{make -n}, which reports that everything is up to date after
+\texttt{CORE\_UTILIZATION} (floorplan) is changed, after
+\texttt{CTS\_CLUSTER\_SIZE} (clock-tree synthesis) is changed, and after
+setting a variable that does not exist at all. A search loop built directly on
+this would request a new configuration and receive the previous design in its
+place, with nothing in the result to indicate the substitution.
+
+Invalidation is therefore performed explicitly. Each work directory carries a
+manifest recording the knobs that produced its checkpoints. Before a stage is
+invoked, the requested knobs are compared against that manifest, the earliest
+step at which any differing knob is read is determined from the extracted
+variable table, and every checkpoint from that step onward is deleted. A change
+confined to clock-tree knobs therefore preserves synthesis, floorplanning and
+placement, while a change to core utilisation discards everything from
+floorplanning on.
+\subsection{On a cluster}
+
+Evaluating one configuration means running a design through the entire flow
+(Figure~\ref{fig:stages}), and the number of admissible configurations grows
+combinatorially with the number of knobs, so exhaustive evaluation is
+infeasible. The knobs also interact, for example placement density must exceed core
+utilisation or placement cannot legalise, and the effect of a clock-tree knob
+depends on the floorplan beneath it. Design space exploration therefore reduces
+to choosing few configurations carefully and evaluating those few in parallel. 
+Ray has no notion of ORFS, so the cluster declares a custom resource,
+\texttt{orfs}, with a count, and each candidate reserves one unit of it for the
+duration of its build. Once the units are taken, further candidates queue
+rather than oversubscribe the machine. The thread count handed to each build
+follows from the same number, namely the machine's cores divided by the
+declared unit count. The members of a node cannot be scheduled independently. \texttt{run\_stage}
+writes a work directory on a worker's local disk, and the members that later
+read metrics or measure the clock tree operate on that same directory, so all
 \begin{figure*}[t]\centering
 \begin{tikzpicture}[
   font=\small,
@@ -86,13 +157,113 @@ measured cost on aes/sky130hd at 8 threads (1721\,s total). Detailed routing is
 build.}
 \label{fig:stages}
 \end{figure*}
+of them must execute on the worker that holds it. Declaring the node as a
+\texttt{ColocatedNode} places its members in a single placement group and
+satisfies this.
+
+\textbf{Failure mode:} the declared unit count and the per-build thread count
+are two halves of one decision, and setting them independently oversubscribes
+the machine silently. Declaring four \texttt{orfs} units on a four-core host
+while each build also requested four threads placed sixteen threads on four
+cores. Load average reached 12.9 and every candidate ran roughly three times
+slower, with no gain in throughput.
+
+\section{The trust boundary}
+
+The agent participates by proposing configurations, not by executing anything.
+Each iteration renders the ledger of what has been built, what it was derived
+from, its measured metrics, and what failed and why, as text. That text is the
+entire prompt. The agent replies with configurations, the driver validates each
+one and dispatches the survivors, and the results are written back to the
+ledger. The agent holds no state between iterations, so its memory is the
+ledger and nothing else.
+
+
+Within a turn the agent may call the read-only tools listed in
+Table~\ref{tab:tools}. All of them are database queries or fitted-model
+evaluations and complete in milliseconds. Proposing a configuration is not
+among them, because it is not a tool call at all. The agent's reply is text,
+and the driver parses the configurations out of it, validates each one, and
+dispatches the builds itself. The set of tools is not fixed. A tool is a method
+on a \texttt{ChiaTool}, so adding one is adding a method, and the boundary is
+preserved by what a tool is permitted to do rather than by keeping the list
+short.
+\begin{table}[t]\footnotesize\centering
+\caption{The tools available to the agent within a turn. Every one is
+read-only and completes in milliseconds. The set is extensible; the constraint
+is on what a tool may do, not on how many exist.}
+\label{tab:tools}
+\begin{tabular}{@{}lp{4.5cm}@{}}
+\toprule
+Tool & Returns \\
+\midrule
+\texttt{list\_legal\_knobs}   & the settable knobs, with stage and range \\
+\texttt{past\_failures}       & configurations known not to build, and why \\
+\texttt{list\_candidates}     & every configuration evaluated so far \\
+\texttt{compare\_candidates}  & those configurations ranked by a chosen metric \\
+\texttt{best\_candidate}      & the best configuration by a chosen metric \\
+\texttt{screen\_candidates}   & a precomputed surrogate ranking over a grid \\
+\texttt{describe\_surrogates} & what each fast model reads and predicts \\
+\texttt{predict\_knobs}       & predictions for configurations the agent supplies \\
+\bottomrule
+\end{tabular}
+\end{table}
+This is where the pattern from CHIA's case studies is enforced. The agent never
+runs the flow. It names a configuration and the driver runs it, so every number
+in the ledger is one ORFS reported rather than one the agent supplied. It
+cannot run DRC or LVS, override knob validation, or force a rebuild that would
+bypass invalidation. Whether a configuration builds at all is decided by ORFS,
+and when one fails the recorded reason is the tool's own message, for example
+that global routing finished with congestion.
+
+\textbf{Failure mode:} what matters is not whether the agent may call tools but
+how long those calls take. An earlier design gave the agent the build as a tool
+and held one model session open across it. On two occasions the session ignored
+its timeout and hung for over two hours while the build completed underneath it
+and went uncollected. Five successive runs failed this way, none for reasons
+connected to the agent's reasoning. Hence , in this design fast tools belong inside the turn but the
+build belongs outside it.
+
+
+\section{The surrogate socket}
+
+Running a stage is expensive, so surrogate models have started being widely
+used in the flow.
+
+Every surrogate predicts from features of a completed stage, but which features
+differ from model to model. The loop therefore does not compute features. A
+model declares the stage it observes and the artifacts it requires, the loop
+builds that stage once and produces those artifacts, and the model extracts its
+own features from them. Figure~\ref{fig:socket} shows the form. Parsing sits
+inside \texttt{\_predict}, against the paths the loop supplies in
+\texttt{state.artifacts}, so a model needing a congestion map rather than a DEF
+changes only its own declaration and its own body.
+
+\begin{figure}[t]
+\begin{small}
+\begin{verbatim}
+class MyModel(SurrogateEvaluator):
+    observes_stage = "place"
+    requires       = ("def", "timing_rpt")
+    predicts       = {"clock_skew_setup": "orfs_metric"}
+    domain         = {"CTS_CLUSTER_SIZE": (12, 30)}
+
+    def _predict(self, state, candidates):
+        d = parse(state.artifacts["def"])
+        ...
+\end{verbatim}
+\end{small}
+\caption{A surrogate declares the stage it observes and the artifacts it
+requires. The loop produces those artifacts and passes their paths; parsing and
+feature extraction happen inside the model.}
+\label{fig:socket}
+\end{figure}
 
 % ---------------------------------------------------------------- NEXT -----
 % \subsection{Running a stage}   -- OpenROADNode: knobs in, metrics out
 % \subsection{Invalidation}      -- the knob manifest
 % \subsection{On a cluster}      -- the orfs resource, colocation
 % \section{The trust boundary}
-% \section{The surrogate socket}
 % \section{Results}
 % \section{What broke}
 % \section{Limitations}
