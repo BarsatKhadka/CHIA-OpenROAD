@@ -34,9 +34,29 @@ import time
 logger = logging.getLogger(__name__)
 
 
-def render_state(store, screen, failures, top_n: int = 12) -> str:
-    """The database as prompt text — the agent's whole memory of the run."""
+def render_state(store, screen, failures, baseline=None, top_n: int = 12) -> str:
+    """The database as prompt text — the agent's whole memory of the run.
+
+    ``baseline`` is the design's own default configuration, measured. Without
+    it the agent cannot tell a win from a loss: it sees only what it built, so
+    a run where every candidate is worse than doing nothing looks identical to
+    one where every candidate is better. Measured on cb_picorv32, where 12 of
+    12 candidates came in below the default and nothing in the prompt said so.
+    """
     lines = []
+    if baseline:
+        def base(k):
+            v = baseline.get(k)
+            return f"{v:.5g}" if isinstance(v, (int, float)) else "-"
+        lines.append("## The default configuration — this is what you must beat")
+        lines.append("")
+        lines.append(f"worst_slack {base('worst_slack')}, clock_skew "
+                     f"{base('clock_skew_setup')}, power_W {base('power_total')}, "
+                     f"area {base('instance_area')}")
+        lines.append("")
+        lines.append("It sets no knobs at all. A configuration that does not "
+                     "beat these numbers is worse than doing nothing.")
+        lines.append("")
     built = [c for c in store.list(status="built", limit=200)]
     if built:
         lines.append("## Everything built so far (id, and what it was derived from)\n")
@@ -49,7 +69,11 @@ def render_state(store, screen, failures, top_n: int = 12) -> str:
                 v = m.get(k)
                 return f"{v:.5g}" if isinstance(v, (int, float)) else "-"
             parent = f"#{c.parent_id}" if c.parent_id else "base"
-            lines.append(f"| #{c.id} | {parent} | {knobs} | {g('worst_slack')} "
+            delta = ""
+            bs = (baseline or {}).get("worst_slack")
+            if isinstance(m.get("worst_slack"), (int, float)) and isinstance(bs, (int, float)):
+                delta = f" ({m['worst_slack'] - bs:+.4f} vs default)"
+            lines.append(f"| #{c.id} | {parent} | {knobs} | {g('worst_slack')}{delta} "
                          f"| {g('clock_skew_setup')} | {g('clock_wirelength_um')} "
                          f"| {g('power_total')} |")
     else:
@@ -208,7 +232,8 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
                    build, iterations: int, per_iteration: int,
                    objective: str = "worst_slack", better: str = "higher",
                    transcript_path: str | None = None, timeout_s: int = 180,
-                   consult=None, shortlist_factor: int = 3, tool=None) -> dict:
+                   consult=None, shortlist_factor: int = 3, tool=None,
+                   baseline=None) -> dict:
     """Alternate short agent decisions with programmatic builds.
 
     ``build(knobs_list) -> list[(knobs, result)]`` runs candidates in parallel
@@ -228,16 +253,31 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
     Without ``consult`` the behaviour is exactly the single-call loop, which is
     the control arm for measuring whether consultation is worth anything.
     """
+    # Turn structure: explore on turn 1, then split each later turn between
+    # refining the leader and exploring elsewhere. An earlier prompt demanded
+    # every candidate be "genuinely different from everything already built",
+    # which forbids refinement and makes every turn pure exploration. Measured
+    # over three turns on four designs, the per-turn best was flat or
+    # oscillating in seven of eight runs, with turn 3 frequently worse than
+    # turn 2.
     transcript = []
     for i in range(iterations):
-        state = render_state(store, screen, failures)
+        state = render_state(store, screen, failures, baseline=baseline)
         prompt = (
             f"{state}\n\n## Your task, iteration {i + 1} of {iterations}\n\n"
-            f"Propose exactly {per_iteration} configurations to build next. They "
-            f"run in parallel, so make them genuinely different from each other "
-            f"and from everything already built.\n\n"
-            f"Optimise {objective} ({better} is better), without inflating area "
-            f"or power.\n\n"
+            f"Propose exactly {per_iteration} configurations to build next. "
+            f"They run in parallel, so make them different from each other.\n\n"
+            + (f"Spend this turn as follows. At least half of your "
+               f"configurations must REFINE the best result so far, each "
+               f"changing only one or two knobs from it so you can tell "
+               f"which change was responsible. The rest may explore "
+               f"elsewhere. Do not re-propose a configuration already "
+               f"built.\n\n" if i > 0 else
+               f"This is the first turn and nothing has been built yet, so "
+               f"spread these configurations widely across the knobs you "
+               f"think matter.\n\n")
+            + f"Optimise {objective} ({better} is better) and beat the "
+            f"default shown above, without inflating area or power.\n\n"
             f"**Every knob below is yours to set** — floorplan, placement and "
             f"clock tree alike, not only the clock-tree ones. A knob you leave "
             f"out takes the design's own default.\n\n"

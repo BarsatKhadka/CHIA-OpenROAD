@@ -247,6 +247,25 @@ def main():
             print("   ", placed.failure.as_hint() if placed.failure else "?")
             return 1
 
+        # The default configuration, measured, so the agent has something to
+        # beat. Without it the ledger shows only what the loop built, and a run
+        # where every candidate is worse than doing nothing is indistinguishable
+        # from one where every candidate is better. Continues from the shared
+        # placement, so it costs the stages after place rather than a full flow.
+        print("\n=== 1b. default configuration (the baseline) ===", flush=True)
+        t_base = time.monotonic()
+        based = run("finish", work_home=base, design_config=design_config, knobs={})
+        baseline = dict(based.summary) if based.success else None
+        if baseline:
+            print(f"    slack={baseline.get('worst_slack')} "
+                  f"skew={baseline.get('clock_skew_setup')} "
+                  f"power={baseline.get('power_total')} "
+                  f"area={baseline.get('instance_area')} "
+                  f"in {time.monotonic()-t_base:.0f}s", flush=True)
+        else:
+            print("    default build FAILED; the agent will run without a "
+                  "baseline to compare against", flush=True)
+
         print("\n=== 2. artifacts the surrogate declared ===", flush=True)
         remote = get(node.emit_artifacts.chia_remote(
             base, design_config, list(surrogate.requires) + ["clock_period"],
@@ -375,6 +394,7 @@ def main():
                     store=store, failures=failures, screen=screen, policy=policy,
                     build=build, iterations=args.turns,
                     consult=None if args.no_consult else consult,
+                    baseline=baseline,
                     tool=None if args.no_tools else tool,
                     per_iteration=min(slots, args.picks),
                     transcript_path=os.path.join(HERE, f"transcript_{args.design}.json"))
