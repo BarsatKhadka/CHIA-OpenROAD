@@ -297,15 +297,25 @@ def main():
             if args.no_agent:
                 # Screen-only arm: build the surrogate's top picks directly, no LLM.
                 card = Scorecard(surrogate.name)
+                # Dispatch every pick before polling any of them, so this arm
+                # uses the same parallelism as the agent arms and the budgets
+                # compare like for like.
+                pending = []
                 for knobs, predicted in screen["ranked"][:args.picks]:
                     reply = tool.propose_candidate(dict(knobs))
                     print("   ", reply, flush=True)
-                    if "started" not in reply:
-                        continue
-                    cid = int(reply.split()[1])
+                    if "started" in reply:
+                        pending.append((int(reply.split()[1]), knobs, predicted))
+                for cid, knobs, predicted in pending:
                     while True:
-                        status = tool.candidate_status(cid, max_wait_seconds=170)
-                        if "still running" not in status:
+                        status = tool.candidate_status(cid, max_wait_seconds=3000)
+                        # The tool answers "is starting up" first and "is
+                        # running" later. Testing for a string it never emits
+                        # ends the wait immediately: an earlier version checked
+                        # "still running", so every candidate was dispatched,
+                        # none waited for, and the arm recorded 0 built while
+                        # the builds were killed on exit.
+                        if "is running" not in status and "starting up" not in status:
                             break
                     print("   ", status, flush=True)
                     row = store.get(cid)
