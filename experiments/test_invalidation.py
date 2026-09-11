@@ -163,5 +163,26 @@ check("2_floorplan.odb was actually rebuilt",
 check("die area moved — the knob reached the tool", die(rg2) != die(rg),
       f"{die(rg)} -> {die(rg2)}")
 
+
+print("\n=== H. the timing check compares like stages ===")
+# A work directory that has advanced past the requested stage holds later
+# reports. Picking whichever JSON sorts first compared a placement extraction
+# against a post-route number and rejected it for a 0.79 ns difference that was
+# simply placement-vs-routed timing on the same design.
+import json as _json, tempfile as _tf
+from chia_openroad.openroad import _timing_csv_agrees
+_d = _tf.mkdtemp(); _logs = os.path.join(_d, "logs"); _res = os.path.join(_d, "results")
+os.makedirs(_logs); os.makedirs(_res)
+_json.dump({"placeopt__timing__setup__ws": -1.05}, open(os.path.join(_logs, "3_place.json"), "w"))
+_json.dump({"finish__timing__setup__ws": -0.2755}, open(os.path.join(_logs, "6_report.json"), "w"))
+open(os.path.join(_res, "clock_period.txt"), "w").write("6.5")
+_dirs = {"logs": _logs, "results": _res}
+_ok = os.path.join(_d, "ok.csv"); open(_ok, "w").write("slack\n-1.0682\n-0.9\n")
+_bad = os.path.join(_d, "bad.csv"); open(_bad, "w").write("slack\n-3.5\n")
+check("place extraction judged against the place metric",
+      _timing_csv_agrees(_ok, "place", _dirs))
+check("a genuinely wrong extraction is still caught",
+      not _timing_csv_agrees(_bad, "place", _dirs))
+
 print("\n" + ("FAILED: " + ", ".join(fails) if fails else "ALL CHECKS PASSED"))
 sys.exit(1 if fails else 0)

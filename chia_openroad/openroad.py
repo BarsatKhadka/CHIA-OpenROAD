@@ -417,8 +417,18 @@ def _timing_csv_agrees(csv_path: str, stage: str, dirs: dict[str, str]) -> bool:
     read_sdc session produced a worst path of -2243 ns where ORFS reports
     -1.538 ns against a 1.1 ns clock.
     """
+    # Compare against the metric for THIS stage, not whichever JSON happens to
+    # sort first. A work directory that has advanced past the requested stage
+    # contains later reports, and reverse-sorted order picks the latest: an
+    # extraction at `place` was checked against 6_report.json's post-route slack
+    # and rejected for differing by 0.79 ns, which is simply the difference
+    # between placement timing and routed timing on the same design.
+    prefix = str(STAGE_PREFIX.get(stage, ""))
+    candidates = sorted(_glob.glob(os.path.join(dirs["logs"], "*.json")))
+    same_stage = [p for p in candidates
+                  if os.path.basename(p).startswith(prefix + "_")] if prefix else []
     reported = None
-    for path in sorted(_glob.glob(os.path.join(dirs["logs"], "*.json")), reverse=True):
+    for path in (same_stage or sorted(candidates, reverse=True)):
         try:
             with open(path) as f:
                 blob = json.load(f)
