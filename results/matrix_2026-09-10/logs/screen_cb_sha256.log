@@ -1,0 +1,116 @@
+2026-09-10 16:21:54,758	INFO worker.py:1810 -- Connecting to existing Ray cluster at address: 10.138.0.2:6379...
+2026-09-10 16:21:54,784	INFO worker.py:2004 -- Connected to Ray cluster. View the dashboard at [1m[32m127.0.0.1:8265 [39m[22m
+2026-09-10 16:21:54,796	INFO packaging.py:691 -- Creating a file package for local module '/home/barsat/repo/chia_openroad'.
+2026-09-10 16:21:54,804	INFO packaging.py:463 -- Pushing file package 'gcs://_ray_pkg_ce1ed6b842061a3e.zip' (0.39MiB) to Ray cluster...
+2026-09-10 16:21:54,806	INFO packaging.py:476 -- Successfully pushed file package 'gcs://_ray_pkg_ce1ed6b842061a3e.zip'.
+/opt/conda/envs/chia_env/lib/python3.10/site-packages/ray/_private/worker.py:2052: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+  warnings.warn(
+2026-09-10 16:21:54,840 INFO cluster: {'CPU': 64.0, 'orfs': 8.0}
+2026-09-10 16:21:54,840 WARNING no calibration at /home/barsat/repo/examples/openroad_orfs/calibration_cb_sha256_sky130hd.json; every range is nominal
+
+=== surrogate conformance ===
+  [ok  ] declares at least one prediction — clock_skew_setup, clock_power_w, clock_wirelength_um
+  [ok  ] every declared kind is valid — {}
+  [ok  ] every orfs_metric name is a real ORFS metric — 12 known
+  [ok  ] declared domain is well-formed — CTS_CLUSTER_DIAMETER(35.0, 70.0), CTS_CLUSTER_SIZE(12.0, 30.0), CTS_BUF_DISTANCE(70.0, 150.0)
+  [warn] predict() needs calibrate() first — pass a calibrated instance and a real state to check it fully — call calibrate(state) before predict() — SwiftCTS parses the placement
+
+  CONFORMANT so far (prediction not exercised)
+
+=== 1. shared placement (cb_sha256) ===
+    built in 72s
+
+=== 2. artifacts the surrogate declared ===
+    {'clock_period': '0KB', 'def': '5210KB', 'timing_rpt': '16KB'}
+
+=== 3. K=1 calibration ===
+2026-09-10 16:23:10,893 INFO loaded SwiftCTS from /home/barsat/sw/SwiftCTS/saved_models/model.pkl
+2026-09-10 16:23:10,894 WARNING no SAIF available; power features fall back to defaults (clock power is unvalidated anyway)
+2026-09-10 16:23:11,116 INFO registered placement cb_sha256_sky130hd (t_clk=10.000 ns)
+2026-09-10 16:37:27,608 INFO K-shot calibration complete with K=1 (2 scale factor(s))
+    k_shot=1 in 858s
+
+=== 4. screen (computed once, on the driver) ===
+    swiftcts ranked 216 configurations by predicted clock_wirelength_um in 0.74s
+           27714.1  CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           27714.1  CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           27714.1  CTS_BUF_DISTANCE=102.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           27714.1  CTS_BUF_DISTANCE=86.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           27714.1  CTS_BUF_DISTANCE=118.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+[36m(_ToolServerActor pid=727270)[0m INFO:     Started server process [727270]
+[36m(_ToolServerActor pid=727270)[0m INFO:     Waiting for application startup.
+[36m(_ToolServerActor pid=727270)[0m INFO:     Application startup complete.
+[36m(_ToolServerActor pid=727270)[0m INFO:     Uvicorn running on http://10.138.0.2:8000 (Press CTRL+C to quit)
+2026-09-10 16:37:29,680 INFO orfs started at 10.138.0.2:8000 on node c96c2c6136c0db5aaa1899cc45d6d7260edbfefc9936b4b81e935e61
+
+=== 5. build ===
+    candidate 1 started with {'CTS_BUF_DISTANCE': 70.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 2 started with {'CTS_BUF_DISTANCE': 150.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 3 started with {'CTS_BUF_DISTANCE': 102.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 4 started with {'CTS_BUF_DISTANCE': 86.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 5 started with {'CTS_BUF_DISTANCE': 118.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 6 started with {'CTS_BUF_DISTANCE': 134.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 7 started with {'CTS_BUF_DISTANCE': 70.0, 'CTS_CLUSTER_DIAMETER': 63.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 8 started with {'CTS_BUF_DISTANCE': 86.0, 'CTS_CLUSTER_DIAMETER': 63.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 9 started with {'CTS_BUF_DISTANCE': 102.0, 'CTS_CLUSTER_DIAMETER': 63.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 10 started with {'CTS_BUF_DISTANCE': 118.0, 'CTS_CLUSTER_DIAMETER': 63.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 11 started with {'CTS_BUF_DISTANCE': 134.0, 'CTS_CLUSTER_DIAMETER': 63.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 12 started with {'CTS_BUF_DISTANCE': 150.0, 'CTS_CLUSTER_DIAMETER': 63.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    #1 CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6582, power_total=0.01487, instance_area=1.234e+05, clock_skew_setup=0.5907)
+        predicted 27714.1 vs actual 26519.8  (4.5%)
+    #2 CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.7588, power_total=0.0148, instance_area=1.238e+05, clock_skew_setup=0.5932)
+        predicted 27714.1 vs actual 26794.7  (3.4%)
+    #3 CTS_BUF_DISTANCE=102.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.7345, power_total=0.01483, instance_area=1.238e+05, clock_skew_setup=0.5942)
+        predicted 27714.1 vs actual 26685.1  (3.9%)
+    #4 CTS_BUF_DISTANCE=86.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6385, power_total=0.01482, instance_area=1.235e+05, clock_skew_setup=0.5902)
+        predicted 27714.1 vs actual 26329.4  (5.3%)
+    #5 CTS_BUF_DISTANCE=118.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6106, power_total=0.0147, instance_area=1.237e+05, clock_skew_setup=0.5887)
+        predicted 27714.1 vs actual 26421.2  (4.9%)
+    #6 CTS_BUF_DISTANCE=134.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6979, power_total=0.01471, instance_area=1.232e+05, clock_skew_setup=0.5803)
+        predicted 27714.1 vs actual 26624.9  (4.1%)
+    #7 CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6341, power_total=0.0149, instance_area=1.241e+05, clock_skew_setup=0.592)
+        predicted 27719.9 vs actual 26394.6  (5.0%)
+    #8 CTS_BUF_DISTANCE=86.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6333, power_total=0.01487, instance_area=1.235e+05, clock_skew_setup=0.5975)
+        predicted 27719.9 vs actual 26397.1  (5.0%)
+    #9 CTS_BUF_DISTANCE=102.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6378, power_total=0.01486, instance_area=1.24e+05, clock_skew_setup=0.5879)
+        predicted 27719.9 vs actual 26544.6  (4.4%)
+    #10 CTS_BUF_DISTANCE=118.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6593, power_total=0.01472, instance_area=1.24e+05, clock_skew_setup=0.6037)
+        predicted 27719.9 vs actual 26385.6  (5.1%)
+    #11 CTS_BUF_DISTANCE=134.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6196, power_total=0.01474, instance_area=1.239e+05, clock_skew_setup=0.6055)
+        predicted 27719.9 vs actual 26563.1  (4.4%)
+    #12 CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6018, power_total=0.01482, instance_area=1.24e+05, clock_skew_setup=0.5992)
+        predicted 27719.9 vs actual 26570.1  (4.3%)
+
+=== screen accuracy ===
+surrogate: swiftcts
+  clock_wirelength_um    n= 12  MAE=1198 (4.5% of mean)  rank_corr=-0.29
+[36m(_ToolServerActor pid=727270)[0m INFO:     Shutting down
+
+=== ledger ===
+  #1 CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6582, power_total=0.01487, instance_area=1.234e+05, clock_skew_setup=0.5907)
+  #2 CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.7588, power_total=0.0148, instance_area=1.238e+05, clock_skew_setup=0.5932)
+  #3 CTS_BUF_DISTANCE=102.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.7345, power_total=0.01483, instance_area=1.238e+05, clock_skew_setup=0.5942)
+  #4 CTS_BUF_DISTANCE=86.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6385, power_total=0.01482, instance_area=1.235e+05, clock_skew_setup=0.5902)
+  #5 CTS_BUF_DISTANCE=118.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6106, power_total=0.0147, instance_area=1.237e+05, clock_skew_setup=0.5887)
+  #6 CTS_BUF_DISTANCE=134.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6979, power_total=0.01471, instance_area=1.232e+05, clock_skew_setup=0.5803)
+  #7 CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6341, power_total=0.0149, instance_area=1.241e+05, clock_skew_setup=0.592)
+  #8 CTS_BUF_DISTANCE=86.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6333, power_total=0.01487, instance_area=1.235e+05, clock_skew_setup=0.5975)
+  #9 CTS_BUF_DISTANCE=102.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6378, power_total=0.01486, instance_area=1.24e+05, clock_skew_setup=0.5879)
+  #10 CTS_BUF_DISTANCE=118.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6593, power_total=0.01472, instance_area=1.24e+05, clock_skew_setup=0.6037)
+  #11 CTS_BUF_DISTANCE=134.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6196, power_total=0.01474, instance_area=1.239e+05, clock_skew_setup=0.6055)
+  #12 CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6018, power_total=0.01482, instance_area=1.24e+05, clock_skew_setup=0.5992)
+
+=== stats === {
+ "proposed": 12,
+ "rejected": 0,
+ "built": 12,
+ "failed": 0,
+ "tool_runs": 24,
+ "build_seconds_total": 18051.9
+}
+
+=== best by worst_slack ===
+  #12 CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=63.0, CTS_CLUSTER_SIZE=30 -> built (worst_slack=-0.6018, power_total=0.01482, instance_area=1.24e+05, clock_skew_setup=0.5992)
+[36m(_ToolServerActor pid=727270)[0m INFO:     Waiting for application shutdown.
+[36m(_ToolServerActor pid=727270)[0m INFO:     Application shutdown complete.
+[36m(_ToolServerActor pid=727270)[0m INFO:     Finished server process [727270]

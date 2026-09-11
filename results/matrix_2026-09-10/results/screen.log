@@ -1,0 +1,5 @@
+[2026-09-10 13:35] START screen  cb_aes + cb_picorv32
+[2026-09-10 16:21] DONE  screen  cb_aes + cb_picorv32
+[2026-09-10 16:21] START screen  cb_sha256 + cb_ethmac
+[2026-09-10 19:26] DONE  screen  cb_sha256 + cb_ethmac
+SCREEN COMPLETE

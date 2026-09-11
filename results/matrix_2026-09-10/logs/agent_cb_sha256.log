@@ -1,0 +1,145 @@
+2026-09-10 08:47:18,470	INFO worker.py:1810 -- Connecting to existing Ray cluster at address: 10.138.0.2:6379...
+2026-09-10 08:47:18,496	INFO worker.py:2004 -- Connected to Ray cluster. View the dashboard at [1m[32m127.0.0.1:8265 [39m[22m
+2026-09-10 08:47:18,507	INFO packaging.py:691 -- Creating a file package for local module '/home/barsat/repo/chia_openroad'.
+2026-09-10 08:47:18,517	INFO packaging.py:463 -- Pushing file package 'gcs://_ray_pkg_ce1ed6b842061a3e.zip' (0.39MiB) to Ray cluster...
+2026-09-10 08:47:18,519	INFO packaging.py:476 -- Successfully pushed file package 'gcs://_ray_pkg_ce1ed6b842061a3e.zip'.
+/opt/conda/envs/chia_env/lib/python3.10/site-packages/ray/_private/worker.py:2052: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+  warnings.warn(
+2026-09-10 08:47:18,554 INFO cluster: {'CPU': 64.0, 'orfs': 8.0}
+2026-09-10 08:47:18,554 WARNING no calibration at /home/barsat/repo/examples/openroad_orfs/calibration_cb_sha256_sky130hd.json; every range is nominal
+
+=== surrogate conformance ===
+  [ok  ] declares at least one prediction — clock_skew_setup, clock_power_w, clock_wirelength_um
+  [ok  ] every declared kind is valid — {}
+  [ok  ] every orfs_metric name is a real ORFS metric — 12 known
+  [ok  ] declared domain is well-formed — CTS_CLUSTER_DIAMETER(35.0, 70.0), CTS_CLUSTER_SIZE(12.0, 30.0), CTS_BUF_DISTANCE(70.0, 150.0)
+  [warn] predict() needs calibrate() first — pass a calibrated instance and a real state to check it fully — call calibrate(state) before predict() — SwiftCTS parses the placement
+
+  CONFORMANT so far (prediction not exercised)
+
+=== 1. shared placement (cb_sha256) ===
+    built in 73s
+
+=== 2. artifacts the surrogate declared ===
+    {'clock_period': '0KB', 'def': '5210KB', 'timing_rpt': '16KB'}
+
+=== 3. K=1 calibration ===
+2026-09-10 08:48:35,699 INFO loaded SwiftCTS from /home/barsat/sw/SwiftCTS/saved_models/model.pkl
+2026-09-10 08:48:35,699 WARNING no SAIF available; power features fall back to defaults (clock power is unvalidated anyway)
+2026-09-10 08:48:35,924 INFO registered placement cb_sha256_sky130hd (t_clk=10.000 ns)
+2026-09-10 09:02:40,421 INFO K-shot calibration complete with K=1 (2 scale factor(s))
+    k_shot=1 in 846s
+
+=== 4. screen (computed once, on the driver) ===
+    swiftcts ranked 216 configurations by predicted clock_wirelength_um in 0.84s
+           27714.1  CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           27714.1  CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           27714.1  CTS_BUF_DISTANCE=102.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           27714.1  CTS_BUF_DISTANCE=86.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           27714.1  CTS_BUF_DISTANCE=118.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+[36m(_ToolServerActor pid=466247)[0m INFO:     Started server process [466247]
+[36m(_ToolServerActor pid=466247)[0m INFO:     Waiting for application startup.
+[36m(_ToolServerActor pid=466247)[0m INFO:     Application startup complete.
+[36m(_ToolServerActor pid=466247)[0m INFO:     Uvicorn running on http://10.138.0.2:8000 (Press CTRL+C to quit)
+2026-09-10 09:02:42,585 INFO orfs started at 10.138.0.2:8000 on node c96c2c6136c0db5aaa1899cc45d6d7260edbfefc9936b4b81e935e61
+
+=== 5. build ===
+2026-09-10 09:02:43,854 INFO AFC is enabled with max remote calls: 10.
+2026-09-10 09:03:08,699 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-10 09:03:08,700 INFO iteration 1: agent replied in 24.8s
+2026-09-10 09:03:08,701 INFO iteration 1: building 4 candidate(s)
+    candidate 1 started with {'CTS_BUF_DISTANCE': 70.0, 'CTS_CLUSTER_DIAMETER': 35.0, 'CTS_CLUSTER_SIZE': 12, 'SETUP_SLACK_MARGIN': 0.2, 'HOLD_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 2 started with {'GPL_ROUTABILITY_DRIVEN': 1, 'GPL_TIMING_DRIVEN': 1, 'CORE_UTILIZATION': 40, 'PLACE_DENSITY': 0.5, 'ROUTING_LAYER_ADJUSTMENT': 0.1, 'CTS_BUF_DISTANCE': 100.0, 'CTS_CLUSTER_DIAMETER': 60.0, 'CTS_CLUSTER_SIZE': 25}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 3 started with {'CTS_BUF_DISTANCE': 80.0, 'CTS_CLUSTER_DIAMETER': 50.0, 'CTS_CLUSTER_SIZE': 20}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 4 started with {'CORE_ASPECT_RATIO': 0.7, 'CORE_UTILIZATION': 50, 'PLACE_DENSITY': 0.7, 'CTS_BUF_DISTANCE': 120.0, 'CTS_CLUSTER_DIAMETER': 45.0, 'CTS_CLUSTER_SIZE': 15}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    #1 CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, HOLD_SLACK_MARGIN=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.6488, power_total=0.02255, instance_area=1.471e+05, clock_skew_setup=0.5772)
+    #2 CORE_UTILIZATION=40, CTS_BUF_DISTANCE=100.0, CTS_CLUSTER_DIAMETER=60.0, CTS_CLUSTER_SIZE=25, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1 -> built (worst_slack=-0.6765, power_total=0.01508, instance_area=1.233e+05, clock_skew_setup=0.5988)
+    #3 CTS_BUF_DISTANCE=80.0, CTS_CLUSTER_DIAMETER=50.0, CTS_CLUSTER_SIZE=20 -> built (worst_slack=-0.6898, power_total=0.01753, instance_area=1.269e+05, clock_skew_setup=0.6058)
+    #4 CORE_ASPECT_RATIO=0.7, CORE_UTILIZATION=50, CTS_BUF_DISTANCE=120.0, CTS_CLUSTER_DIAMETER=45.0, CTS_CLUSTER_SIZE=15, PLACE_DENSITY=0.7 -> built (worst_slack=-0.8814, power_total=0.01602, instance_area=1.241e+05, clock_skew_setup=0.5969)
+2026-09-10 09:39:52,360 INFO AFC is enabled with max remote calls: 10.
+2026-09-10 09:40:30,703 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-10 09:40:30,705 INFO iteration 2: agent replied in 38.3s
+2026-09-10 09:40:30,705 INFO iteration 2: building 4 candidate(s)
+    candidate 5 started with {'CORE_ASPECT_RATIO': 1.0, 'CORE_UTILIZATION': 40, 'HOLD_SLACK_MARGIN': 0.1, 'PLACE_DENSITY': 0.5, 'ROUTING_LAYER_ADJUSTMENT': 0.1, 'SETUP_SLACK_MARGIN': 0.2, 'GPL_ROUTABILITY_DRIVEN': 0, 'GPL_TIMING_DRIVEN': 0, 'CTS_BUF_DISTANCE': 70.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 6 started with {'CORE_ASPECT_RATIO': 1.0, 'CORE_UTILIZATION': 40, 'HOLD_SLACK_MARGIN': 0.1, 'PLACE_DENSITY': 0.5, 'ROUTING_LAYER_ADJUSTMENT': 0.1, 'SETUP_SLACK_MARGIN': 0.2, 'GPL_ROUTABILITY_DRIVEN': 1, 'GPL_TIMING_DRIVEN': 1, 'CTS_BUF_DISTANCE': 70.0, 'CTS_CLUSTER_DIAMETER': 35.0, 'CTS_CLUSTER_SIZE': 12}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 7 started with {'CORE_ASPECT_RATIO': 1.0, 'CORE_UTILIZATION': 30, 'HOLD_SLACK_MARGIN': 0.1, 'PLACE_DENSITY': 0.4, 'ROUTING_LAYER_ADJUSTMENT': 0.1, 'SETUP_SLACK_MARGIN': 0.2, 'GPL_ROUTABILITY_DRIVEN': 0, 'GPL_TIMING_DRIVEN': 0, 'CTS_BUF_DISTANCE': 70.0, 'CTS_CLUSTER_DIAMETER': 35.0, 'CTS_CLUSTER_SIZE': 12}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 8 started with {'CORE_ASPECT_RATIO': 1.0, 'CORE_UTILIZATION': 40, 'HOLD_SLACK_MARGIN': 0.1, 'PLACE_DENSITY': 0.5, 'ROUTING_LAYER_ADJUSTMENT': 0.1, 'SETUP_SLACK_MARGIN': 0.2, 'GPL_ROUTABILITY_DRIVEN': 0, 'GPL_TIMING_DRIVEN': 0, 'CTS_BUF_DISTANCE': 150.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    #5 CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=40, CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=0, GPL_TIMING_DRIVEN=0, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> FAILED at 5_2_route: exceeded the 5400s limit; still running when killed
+    #6 CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=40, CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.7827, power_total=0.02238, instance_area=1.462e+05, clock_skew_setup=0.6071)
+[36m(OpenROADNode.run_stage pid=270286)[0m ORFS finish timed out after 5400s
+[36m(OpenROADNode.run_stage pid=270286)[0m ORFS finish failed (rc=-9): CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=40, CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=0, GPL_TIMING_DRIVEN=0, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> failed at 5_2_route [TIMEOUT]: exceeded the 5400s limit; still running when killed
+    #7 CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=30, CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=0, GPL_TIMING_DRIVEN=0, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.4, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-1.368, power_total=0.02238, instance_area=1.436e+05, clock_skew_setup=0.6052)
+    #8 CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=40, CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=0, GPL_TIMING_DRIVEN=0, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> FAILED at 5_2_route: exceeded the 5400s limit; still running when killed
+2026-09-10 11:31:34,155 INFO AFC is enabled with max remote calls: 10.
+[36m(OpenROADNode.run_stage pid=270283)[0m ORFS finish timed out after 5400s
+[36m(OpenROADNode.run_stage pid=270283)[0m ORFS finish failed (rc=-9): CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=40, CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=0, GPL_TIMING_DRIVEN=0, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> failed at 5_2_route [TIMEOUT]: exceeded the 5400s limit; still running when killed
+2026-09-10 11:32:03,658 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-10 11:32:03,660 INFO iteration 3: agent replied in 29.5s
+2026-09-10 11:32:03,660 INFO iteration 3: building 4 candidate(s)
+    candidate 9 started with {'SETUP_SLACK_MARGIN': 0.0, 'HOLD_SLACK_MARGIN': 0.0, 'GPL_TIMING_DRIVEN': 1, 'GPL_ROUTABILITY_DRIVEN': 1, 'CORE_UTILIZATION': 40, 'PLACE_DENSITY': 0.5, 'ROUTING_LAYER_ADJUSTMENT': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 10 started with {'CTS_BUF_DISTANCE': 100.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30, 'CORE_UTILIZATION': 30, 'PLACE_DENSITY': 0.4, 'ROUTING_LAYER_ADJUSTMENT': 0.1, 'GPL_ROUTABILITY_DRIVEN': 1, 'GPL_TIMING_DRIVEN': 1, 'SETUP_SLACK_MARGIN': 0.2, 'HOLD_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 11 started with {'CTS_BUF_DISTANCE': 80.0, 'CTS_CLUSTER_DIAMETER': 45.0, 'CTS_CLUSTER_SIZE': 15, 'CORE_UTILIZATION': 50, 'PLACE_DENSITY': 0.7, 'GPL_TIMING_DRIVEN': 1, 'GPL_ROUTABILITY_DRIVEN': 1, 'SETUP_SLACK_MARGIN': 0.2, 'HOLD_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 12 started with {'CORE_ASPECT_RATIO': 1.4, 'GPL_TIMING_DRIVEN': 1, 'GPL_ROUTABILITY_DRIVEN': 1, 'CORE_UTILIZATION': 40, 'PLACE_DENSITY': 0.5, 'ROUTING_LAYER_ADJUSTMENT': 0.1, 'SETUP_SLACK_MARGIN': 0.2, 'HOLD_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    #9 CORE_UTILIZATION=40, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.0, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.0 -> built (worst_slack=-0.7104, power_total=0.01586, instance_area=1.241e+05, clock_skew_setup=0.6083)
+    #10 CORE_UTILIZATION=30, CTS_BUF_DISTANCE=100.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.4, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.7168, power_total=0.01491, instance_area=1.383e+05, clock_skew_setup=0.5531)
+    #11 CORE_UTILIZATION=50, CTS_BUF_DISTANCE=80.0, CTS_CLUSTER_DIAMETER=45.0, CTS_CLUSTER_SIZE=15, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.7, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.5836, power_total=0.01887, instance_area=1.416e+05, clock_skew_setup=0.6013)
+    #12 CORE_ASPECT_RATIO=1.4, CORE_UTILIZATION=40, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.5471, power_total=0.0157, instance_area=1.368e+05, clock_skew_setup=0.5695)
+
+=== agent ran 3 iteration(s) ===
+
+-- iteration 1 --
+The surrogate model prioritizes `clock_wirelength_um`, which often correlates with lower clock power and area. To optimize for `worst_slack` (higher is better), we need to explore configurations that may trade off `clock_wirelength_um` for better skew or overall timing closure. My proposals aim to:
+
+1.  **Aggressively reduce clock skew and push timing closure:** This configuration uses minimal `CTS_CLUSTER_DIAMETER` and `CTS_CLUSTER_SIZE` to prioritize skew, and maximal `SETUP_SLACK_MARGIN` and `HOLD_SLACK_MARGIN` to push the timing engine. This will likely increase clock power/area but could yield the best `worst_slack`.
+2.  **Improve placement and routing quality:** This configuration enables timing and routability-driven global placement, and reduces `CORE_UTILIZATION` and `ROUTING_LAYER_ADJUSTMENT` to ease congestion. This creates a better environment for timing closure.
+3.  **Explor
+
+-- iteration 2 --
+To optimize `worst_slack` without inflating area or power, I will propose four distinct configurations. My strategy is to leverage the `SETUP_SLACK_MARGIN=0.2` (from #1, which yielded the best `worst_slack`) across all proposals. I will then explore different combinations of CTS parameters (guided by the surrogate model for wirelength), placement options, and floorplan adjustments.
+
+Here are the proposed configurations:
+
+1.  **Aggressive CTS with Surrogate's Wirelength Parameters:** This configuration combines the best observed `SETUP_SLACK_MARGIN` and tight `CTS_BUF_DISTANCE` (from #1) with the surrogate-predicted low wirelength `CTS_CLUSTER_DIAMETER` and `CTS_CLUSTER_SIZE`. This aims for `worst_slack` improvement while potentially benefiting power and wirelength from larger cluster sizes.
+2.  **Timing-Driven Placement with Aggressive CTS:** This explores if enabling `GPL_TIMING_DRIVEN`
+
+-- iteration 3 --
+The current designs all show negative `worst_slack`, indicating timing violations. The best slack achieved is -0.6488 (#1). Clock skew is consistently high across all runs (around 0.6ns). My strategy is to explore configurations that:
+1.  **Aggressively target timing closure** by reducing slack margins and enabling timing/routability-driven placement.
+2.  **Re-evaluate CTS parameters that previously led to routing failures** but were predicted to have low wirelength, by significantly loosening floorplan and routing constraints.
+3.  **Explore a balanced set of CTS parameters** with higher utilization, relying on timing/routability-driven placement to manage congestion.
+4.  **Investigate the impact of `CORE_ASPECT_RATIO`** on the best-performing configuration to see if a different form factor can improve timing.
+
+Here are the proposed configurations:
+
+```json
+{"from": "#1", "SETUP_SLACK_MA
+[36m(_ToolServerActor pid=466247)[0m INFO:     Shutting down
+
+=== ledger ===
+  #1 CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, HOLD_SLACK_MARGIN=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.6488, power_total=0.02255, instance_area=1.471e+05, clock_skew_setup=0.5772)
+  #2 CORE_UTILIZATION=40, CTS_BUF_DISTANCE=100.0, CTS_CLUSTER_DIAMETER=60.0, CTS_CLUSTER_SIZE=25, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1 -> built (worst_slack=-0.6765, power_total=0.01508, instance_area=1.233e+05, clock_skew_setup=0.5988)
+  #3 CTS_BUF_DISTANCE=80.0, CTS_CLUSTER_DIAMETER=50.0, CTS_CLUSTER_SIZE=20 -> built (worst_slack=-0.6898, power_total=0.01753, instance_area=1.269e+05, clock_skew_setup=0.6058)
+  #4 CORE_ASPECT_RATIO=0.7, CORE_UTILIZATION=50, CTS_BUF_DISTANCE=120.0, CTS_CLUSTER_DIAMETER=45.0, CTS_CLUSTER_SIZE=15, PLACE_DENSITY=0.7 -> built (worst_slack=-0.8814, power_total=0.01602, instance_area=1.241e+05, clock_skew_setup=0.5969)
+  #5 CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=40, CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=0, GPL_TIMING_DRIVEN=0, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> FAILED at 5_2_route: exceeded the 5400s limit; still running when killed
+  #6 CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=40, CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.7827, power_total=0.02238, instance_area=1.462e+05, clock_skew_setup=0.6071)
+  #7 CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=30, CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=0, GPL_TIMING_DRIVEN=0, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.4, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-1.368, power_total=0.02238, instance_area=1.436e+05, clock_skew_setup=0.6052)
+  #8 CORE_ASPECT_RATIO=1.0, CORE_UTILIZATION=40, CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=0, GPL_TIMING_DRIVEN=0, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> FAILED at 5_2_route: exceeded the 5400s limit; still running when killed
+  #9 CORE_UTILIZATION=40, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.0, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.0 -> built (worst_slack=-0.7104, power_total=0.01586, instance_area=1.241e+05, clock_skew_setup=0.6083)
+  #10 CORE_UTILIZATION=30, CTS_BUF_DISTANCE=100.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.4, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.7168, power_total=0.01491, instance_area=1.383e+05, clock_skew_setup=0.5531)
+  #11 CORE_UTILIZATION=50, CTS_BUF_DISTANCE=80.0, CTS_CLUSTER_DIAMETER=45.0, CTS_CLUSTER_SIZE=15, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.7, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.5836, power_total=0.01887, instance_area=1.416e+05, clock_skew_setup=0.6013)
+  #12 CORE_ASPECT_RATIO=1.4, CORE_UTILIZATION=40, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.5471, power_total=0.0157, instance_area=1.368e+05, clock_skew_setup=0.5695)
+
+=== stats === {
+ "proposed": 12,
+ "rejected": 0,
+ "built": 10,
+ "failed": 2,
+ "tool_runs": 24,
+ "build_seconds_total": 30190.1
+}
+
+=== best by worst_slack ===
+  #12 CORE_ASPECT_RATIO=1.4, CORE_UTILIZATION=40, GPL_ROUTABILITY_DRIVEN=1, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=-0.5471, power_total=0.0157, instance_area=1.368e+05, clock_skew_setup=0.5695)
+[36m(_ToolServerActor pid=466247)[0m INFO:     Waiting for application shutdown.
+[36m(_ToolServerActor pid=466247)[0m INFO:     Application shutdown complete.
+[36m(_ToolServerActor pid=466247)[0m INFO:     Finished server process [466247]

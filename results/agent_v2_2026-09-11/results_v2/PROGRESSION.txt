@@ -1,0 +1,12 @@
+
+=== cb_aes   default -0.2755 ===
+  v1  per-turn -0.1846  -0.1651  -0.1618 | best -0.1618 median -0.1987 beat 7/10  [improving]
+  v2  per-turn -0.1173  -0.1651  -0.1640 | best -0.1173 median -0.1940 beat 7/11  [mixed]
+
+=== cb_picorv32   default -0.2352 ===
+  v1  per-turn -0.2878  -0.3149  -0.3459 | best -0.2878 median -0.3723 beat 0/12  [worsening]
+  v2  per-turn -0.2801  -0.2455  -0.2351 | best -0.2351 median -0.2769 beat 1/12  [improving]
+
+=== cb_sha256   default -0.5778 ===
+  v1  per-turn -0.6311  -0.5342  -0.6245 | best -0.5342 median -0.7125 beat 1/12  [mixed]
+  v2  per-turn -0.6115  -0.6115  -0.5342 | best -0.5342 median -0.6716 beat 1/12  [mixed]

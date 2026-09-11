@@ -1,0 +1,16 @@
+[2026-09-09 21:16] START arm=full  cb_aes + cb_picorv32
+[2026-09-10 01:17] DONE  arm=full  cb_aes + cb_picorv32
+/dev/sda1        99G   22G   73G  24% /
+[2026-09-10 01:17] START arm=full  cb_sha256 + cb_ethmac
+[2026-09-10 04:37] DONE  arm=full  cb_sha256 + cb_ethmac
+/dev/sda1        99G   23G   73G  24% /
+[2026-09-10 04:37] START arm=agent  cb_aes + cb_picorv32
+[2026-09-10 08:47] DONE  arm=agent  cb_aes + cb_picorv32
+/dev/sda1        99G   23G   72G  24% /
+[2026-09-10 08:47] START arm=agent  cb_sha256 + cb_ethmac
+[2026-09-10 12:41] DONE  arm=agent  cb_sha256 + cb_ethmac
+/dev/sda1        99G   23G   72G  24% /
+[2026-09-10 12:41] START arm=screen  cb_aes + cb_picorv32
+[2026-09-10 13:25] DONE  arm=screen  cb_aes + cb_picorv32
+/dev/sda1        99G   23G   72G  24% /
+[2026-09-10 13:25] START arm=screen  cb_sha256 + cb_ethmac
