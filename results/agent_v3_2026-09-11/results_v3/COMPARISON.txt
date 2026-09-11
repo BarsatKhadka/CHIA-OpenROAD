@@ -1,0 +1,10 @@
+
+=== cb_picorv32   default -0.2352 ===
+  v1 explore  -0.2878  -0.3149  -0.3459 | best -0.2878 median -0.3723 beat 0/12  [worsening]
+  v2 refine   -0.2801  -0.2455  -0.2351 | best -0.2351 median -0.2769 beat 1/12  [improving]
+  v3 adaptive  -0.3114  -0.2482  -0.2352 | best -0.2352 median -0.3339 beat 0/11  [improving]
+
+=== cb_ethmac   default +0.1106 ===
+  v1 explore  +0.3219  +0.3703  +0.3703 | best +0.3703 median +0.2437 beat 9/12  [mixed]
+  v2 refine   +0.2882  +0.2651  +0.2795 | best +0.2882 median +0.1096 beat 5/12  [mixed]
+  v3 adaptive  +0.3869  +0.4112  +0.3063 | best +0.4112 median +0.1898 beat 8/12  [mixed]

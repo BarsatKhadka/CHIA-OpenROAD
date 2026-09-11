@@ -1,0 +1,159 @@
+2026-09-11 19:57:24,691	INFO worker.py:1810 -- Connecting to existing Ray cluster at address: 10.138.0.2:6379...
+2026-09-11 19:57:24,718	INFO worker.py:2004 -- Connected to Ray cluster. View the dashboard at [1m[32m127.0.0.1:8265 [39m[22m
+2026-09-11 19:57:24,729	INFO packaging.py:691 -- Creating a file package for local module '/home/barsat/repo/chia_openroad'.
+2026-09-11 19:57:24,738	INFO packaging.py:463 -- Pushing file package 'gcs://_ray_pkg_5739d289a0263527.zip' (0.40MiB) to Ray cluster...
+2026-09-11 19:57:24,740	INFO packaging.py:476 -- Successfully pushed file package 'gcs://_ray_pkg_5739d289a0263527.zip'.
+/opt/conda/envs/chia_env/lib/python3.10/site-packages/ray/_private/worker.py:2052: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+  warnings.warn(
+2026-09-11 19:57:24,775 INFO cluster: {'CPU': 64.0, 'orfs': 8.0}
+2026-09-11 19:57:24,776 WARNING no calibration at /home/barsat/repo/examples/openroad_orfs/calibration_cb_ethmac_sky130hd.json; every range is nominal
+
+=== surrogate conformance ===
+  [ok  ] declares at least one prediction — clock_skew_setup, clock_power_w, clock_wirelength_um
+  [ok  ] every declared kind is valid — {}
+  [ok  ] every orfs_metric name is a real ORFS metric — 12 known
+  [ok  ] declared domain is well-formed — CTS_CLUSTER_DIAMETER(35.0, 70.0), CTS_CLUSTER_SIZE(12.0, 30.0), CTS_BUF_DISTANCE(70.0, 150.0)
+  [warn] predict() needs calibrate() first — pass a calibrated instance and a real state to check it fully — call calibrate(state) before predict() — SwiftCTS parses the placement
+
+  CONFORMANT so far (prediction not exercised)
+
+=== 1. shared placement (cb_ethmac) ===
+    built in 429s
+
+=== 1b. default configuration (the baseline) ===
+    slack=0.110636 skew=0.6348 power=0.150494 area=482104 in 975s
+
+=== 2. artifacts the surrogate declared ===
+    {'clock_period': '0KB', 'def': '17191KB', 'timing_rpt': '43KB'}
+
+=== 3. K=1 calibration ===
+2026-09-11 20:20:56,513 INFO loaded SwiftCTS from /home/barsat/sw/SwiftCTS/saved_models/model.pkl
+2026-09-11 20:20:56,514 WARNING no SAIF available; power features fall back to defaults (clock power is unvalidated anyway)
+2026-09-11 20:20:57,157 INFO registered placement cb_ethmac_sky130hd (t_clk=6.500 ns)
+2026-09-11 20:39:54,668 INFO K-shot calibration complete with K=1 (2 scale factor(s))
+    k_shot=1 in 1139s
+
+=== 4. screen (computed once, on the driver) ===
+    swiftcts ranked 216 configurations by predicted clock_wirelength_um in 0.77s
+           95560.7  CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           95560.7  CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           95560.7  CTS_BUF_DISTANCE=102.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           95560.7  CTS_BUF_DISTANCE=86.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+           95560.7  CTS_BUF_DISTANCE=118.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Started server process [1328571]
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Waiting for application startup.
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Application startup complete.
+[36m(_ToolServerActor pid=1328571)[0m ERROR:    [Errno 98] error while attempting to bind on address ('10.138.0.2', 8000): address already in use
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Waiting for application shutdown.
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Application shutdown complete.
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Started server process [1328571]
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Waiting for application startup.
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Application startup complete.
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Uvicorn running on http://10.138.0.2:8001 (Press CTRL+C to quit)
+2026-09-11 20:40:01,808 INFO orfs started at 10.138.0.2:8001 on node c96c2c6136c0db5aaa1899cc45d6d7260edbfefc9936b4b81e935e61
+
+=== 5. build ===
+2026-09-11 20:40:02,664 INFO AFC is enabled with max remote calls: 10.
+2026-09-11 20:40:34,638 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-11 20:40:34,686 INFO iteration 1: surrogate priced 12 shortlisted configuration(s)
+2026-09-11 20:40:44,612 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-11 20:40:52,650 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-11 20:40:52,653 INFO iteration 1: agent called 1 tool(s): list_legal_knobs({})
+2026-09-11 20:40:52,653 INFO iteration 1: agent replied in 50.0s
+2026-09-11 20:40:52,653 INFO iteration 1: building 4 candidate(s)
+    candidate 1 started with {'SETUP_SLACK_MARGIN': 0.2, 'GPL_TIMING_DRIVEN': 1, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30, 'CTS_BUF_DISTANCE': 110.0}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 2 started with {'CORE_UTILIZATION': 40.0, 'PLACE_DENSITY': 0.6, 'ROUTING_LAYER_ADJUSTMENT': 0.3, 'GPL_ROUTABILITY_DRIVEN': 1, 'CTS_CLUSTER_DIAMETER': 35.0, 'CTS_CLUSTER_SIZE': 12, 'SETUP_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 3 started with {'CORE_ASPECT_RATIO': 0.7, 'HOLD_SLACK_MARGIN': 0.1, 'SETUP_SLACK_MARGIN': 0.1, 'CTS_BUF_DISTANCE': 70.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 4 started with {'CORE_UTILIZATION': 55.0, 'PLACE_DENSITY': 0.8, 'GPL_TIMING_DRIVEN': 1, 'SETUP_SLACK_MARGIN': 0.15, 'CTS_BUF_DISTANCE': 150.0, 'CTS_CLUSTER_DIAMETER': 50.0, 'CTS_CLUSTER_SIZE': 20}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    #1 CTS_BUF_DISTANCE=110.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_TIMING_DRIVEN=1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=0.3043, power_total=0.1327, instance_area=4.68e+05, clock_skew_setup=0.6243)
+    #2 CORE_UTILIZATION=40.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.6, ROUTING_LAYER_ADJUSTMENT=0.3, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.3869, power_total=0.1795, instance_area=5.032e+05, clock_skew_setup=0.6413)
+    #3 CORE_ASPECT_RATIO=0.7, CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, HOLD_SLACK_MARGIN=0.1, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.2101, power_total=0.1254, instance_area=4.636e+05, clock_skew_setup=0.6156)
+    #4 CORE_UTILIZATION=55.0, CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=50.0, CTS_CLUSTER_SIZE=20, GPL_TIMING_DRIVEN=1, PLACE_DENSITY=0.8, SETUP_SLACK_MARGIN=0.15 -> built (worst_slack=0.1491, power_total=0.1382, instance_area=4.642e+05, clock_skew_setup=0.6208)
+2026-09-11 21:45:12,027 INFO AFC is enabled with max remote calls: 10.
+2026-09-11 21:45:58,328 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-11 21:45:58,376 INFO iteration 2: surrogate priced 12 shortlisted configuration(s)
+2026-09-11 21:46:14,908 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-11 21:46:21,448 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-11 21:46:21,450 INFO iteration 2: agent called 4 tool(s): predict_knobs({"knobs": {"CORE_UTILIZATION": 40, "PLACE_DENSITY": 0.6, "CTS_CLUSTER_SIZE": 12, "GPL_ROUTABILITY_DR), predict_knobs({"knobs": {"CTS_CLUSTER_SIZE": 30, "CTS_BUF_DISTANCE": 100, "CTS_CLUSTER_DIAMETER": 70, "GPL_TIMING_), predict_knobs({"knobs": {"GPL_ROUTABILITY_DRIVEN": 1, "CTS_CLUSTER_DIAMETER": 35, "SETUP_SLACK_MARGIN": 0.1, "CORE), predict_knobs({"knobs": {"CTS_CLUSTER_SIZE": 12, "ROUTING_LAYER_ADJUSTMENT": 0.5, "SETUP_SLACK_MARGIN": 0.1, "GPL_)
+2026-09-11 21:46:21,450 INFO iteration 2: agent replied in 69.4s
+2026-09-11 21:46:21,451 INFO iteration 2: building 4 candidate(s)
+    candidate 5 started with {'CORE_UTILIZATION': 40.0, 'CTS_CLUSTER_DIAMETER': 50.0, 'CTS_CLUSTER_SIZE': 12, 'GPL_ROUTABILITY_DRIVEN': 1, 'PLACE_DENSITY': 0.6, 'ROUTING_LAYER_ADJUSTMENT': 0.3, 'SETUP_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 6 started with {'CTS_BUF_DISTANCE': 100.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30, 'GPL_TIMING_DRIVEN': 1, 'SETUP_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 7 started with {'CORE_UTILIZATION': 30.0, 'PLACE_DENSITY': 0.5, 'CTS_CLUSTER_DIAMETER': 35.0, 'CTS_CLUSTER_SIZE': 12, 'GPL_ROUTABILITY_DRIVEN': 1, 'ROUTING_LAYER_ADJUSTMENT': 0.3, 'SETUP_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 8 started with {'ROUTING_LAYER_ADJUSTMENT': 0.5, 'HOLD_SLACK_MARGIN': 0.0, 'CORE_UTILIZATION': 40.0, 'CTS_CLUSTER_DIAMETER': 35.0, 'CTS_CLUSTER_SIZE': 12, 'GPL_ROUTABILITY_DRIVEN': 1, 'PLACE_DENSITY': 0.6, 'SETUP_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    #5 CORE_UTILIZATION=40.0, CTS_CLUSTER_DIAMETER=50.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.6, ROUTING_LAYER_ADJUSTMENT=0.3, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.4112, power_total=0.1515, instance_area=4.808e+05, clock_skew_setup=0.5659)
+    #6 CTS_BUF_DISTANCE=100.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_TIMING_DRIVEN=1, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.00976, power_total=0.1332, instance_area=4.684e+05, clock_skew_setup=0.6216)
+    #7 CORE_UTILIZATION=30.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.3, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.07562, power_total=0.1814, instance_area=5.107e+05, clock_skew_setup=0.6636)
+    #8 CORE_UTILIZATION=40.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, HOLD_SLACK_MARGIN=0.0, PLACE_DENSITY=0.6, ROUTING_LAYER_ADJUSTMENT=0.5, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.3869, power_total=0.1795, instance_area=5.032e+05, clock_skew_setup=0.6413)
+2026-09-11 22:30:56,179 INFO AFC is enabled with max remote calls: 10.
+2026-09-11 22:31:51,691 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-11 22:31:51,730 INFO iteration 3: surrogate priced 10 shortlisted configuration(s)
+2026-09-11 22:32:17,065 INFO HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1beta1/projects/project-9c5b6cd4-961c-498d-936/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-09-11 22:32:17,067 INFO iteration 3: agent replied in 80.9s
+2026-09-11 22:32:17,068 INFO iteration 3: building 4 candidate(s)
+    candidate 9 started with {'CORE_UTILIZATION': 40.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30, 'GPL_ROUTABILITY_DRIVEN': 1, 'PLACE_DENSITY': 0.6, 'ROUTING_LAYER_ADJUSTMENT': 0.3, 'SETUP_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 10 started with {'CORE_UTILIZATION': 50.0, 'CTS_BUF_DISTANCE': 130.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30, 'GPL_ROUTABILITY_DRIVEN': 1, 'PLACE_DENSITY': 0.7, 'SETUP_SLACK_MARGIN': 0.15}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 11 started with {'CORE_ASPECT_RATIO': 1.0, 'CTS_BUF_DISTANCE': 100.0, 'CTS_CLUSTER_DIAMETER': 70.0, 'CTS_CLUSTER_SIZE': 30, 'GPL_TIMING_DRIVEN': 1, 'HOLD_SLACK_MARGIN': 0.05, 'SETUP_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    candidate 12 started with {'CORE_UTILIZATION': 30.0, 'CTS_CLUSTER_DIAMETER': 35.0, 'CTS_CLUSTER_SIZE': 12, 'GPL_ROUTABILITY_DRIVEN': 1, 'PLACE_DENSITY': 0.5, 'ROUTING_LAYER_ADJUSTMENT': 0.7, 'SETUP_SLACK_MARGIN': 0.1}. A full build takes around an hour. Up to 8 candidates run at once, so propose the others you want now and poll them all afterwards rather than waiting on this one.
+    #9 CORE_UTILIZATION=40.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.6, ROUTING_LAYER_ADJUSTMENT=0.3, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.3063, power_total=0.1303, instance_area=4.64e+05, clock_skew_setup=0.6065)
+    #10 CORE_UTILIZATION=50.0, CTS_BUF_DISTANCE=130.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.7, SETUP_SLACK_MARGIN=0.15 -> built (worst_slack=0.1695, power_total=0.128, instance_area=4.571e+05, clock_skew_setup=0.6063)
+    #11 CORE_ASPECT_RATIO=1.0, CTS_BUF_DISTANCE=100.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.05, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.0169, power_total=0.1332, instance_area=4.695e+05, clock_skew_setup=0.6124)
+    #12 CORE_UTILIZATION=30.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.7, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.07562, power_total=0.1814, instance_area=5.107e+05, clock_skew_setup=0.6636)
+
+=== agent ran 3 iteration(s) ===
+
+-- iteration 1 --
+I will propose four distinct configurations to explore the design space, focusing on improving `worst_slack` while being mindful of area and power. I will vary floorplan, placement, and clock tree synthesis (CTS) knobs.
+
+1.  **Aggressive Setup Timing:** Maximize `SETUP_SLACK_MARGIN` and enable timing-driven placement, combined with a clock tree configuration that showed good wirelength in the fast model.
+2.  **Routability and Fine-Grained CTS:** Prioritize routability with lower utilization and density, and explore a clock tree with smaller clusters for potentially better skew.
+3.  **Floorplan Aspect Ratio and Hold Timing:** Investigate the impact of an extreme aspect ratio and maximize `HOLD_SLACK_MARGIN`, using a standard clock tree setup.
+4.  **High Utilization and Timing-Driven Placement:** Push for higher utilization and density, coupled with timing-driven placement and a moderate c
+
+-- iteration 2 --
+Here are 4 configurations to build. One refines the best result so far (#2) by changing only one knob. The others explore different combinations of parameters to improve worst_slack without inflating area or power.
+
+Refine #2 by increasing CTS_CLUSTER_DIAMETER to 50.0 to see its effect on slack.
+{"from": 2, "CORE_UTILIZATION": 40.0, "CTS_CLUSTER_DIAMETER": 50.0, "CTS_CLUSTER_SIZE": 12, "GPL_ROUTABILITY_DRIVEN": 1, "PLACE_DENSITY": 0.6, "ROUTING_LAYER_ADJUSTMENT": 0.3, "SETUP_SLACK_MARGIN": 0.1}
+Explore CTS settings predicted for low wirelength, combined with GPL_TIMING_DRIVEN and a moderate SETUP_SLACK_MARGIN.
+{"CTS_BUF_DISTANCE": 100.0, "CTS_CLUSTER_DIAMETER": 70.0, "CTS_CLUSTER_SIZE": 30, "GPL_TIMING_DRIVEN": 1, "SETUP_SLACK_MARGIN": 0.1}
+Investigate the impact of lower CORE_UTILIZATION and PLACE_DENSITY on slack, keeping other parameters from #2.
+{"CORE_UTILIZATION": 30.0, "PLACE_DENS
+
+-- iteration 3 --
+Here are 4 configurations to build next. The first refines the best result so far (#5) by adjusting clock tree parameters. The others explore different combinations of floorplan, placement, and clock tree knobs to find further improvements in worst_slack, without inflating area or power.
+
+{"from": 5, "CORE_UTILIZATION": 40.0, "CTS_CLUSTER_DIAMETER": 70.0, "CTS_CLUSTER_SIZE": 30, "GPL_ROUTABILITY_DRIVEN": 1, "PLACE_DENSITY": 0.6, "ROUTING_LAYER_ADJUSTMENT": 0.3, "SETUP_SLACK_MARGIN": 0.1}
+{"CORE_UTILIZATION": 50.0, "CTS_BUF_DISTANCE": 130.0, "CTS_CLUSTER_DIAMETER": 70.0, "CTS_CLUSTER_SIZE": 30, "GPL_ROUTABILITY_DRIVEN": 1, "PLACE_DENSITY": 0.7, "SETUP_SLACK_MARGIN": 0.15}
+{"CORE_ASPECT_RATIO": 1.0, "CTS_BUF_DISTANCE": 100.0, "CTS_CLUSTER_DIAMETER": 70.0, "CTS_CLUSTER_SIZE": 30, "GPL_TIMING_DRIVEN": 1, "HOLD_SLACK_MARGIN": 0.05, "SETUP_SLACK_MARGIN": 0.1}
+{"CORE_UTILIZATION": 30.0, "CTS_CL
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Shutting down
+
+=== ledger ===
+  #1 CTS_BUF_DISTANCE=110.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_TIMING_DRIVEN=1, SETUP_SLACK_MARGIN=0.2 -> built (worst_slack=0.3043, power_total=0.1327, instance_area=4.68e+05, clock_skew_setup=0.6243)
+  #2 CORE_UTILIZATION=40.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.6, ROUTING_LAYER_ADJUSTMENT=0.3, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.3869, power_total=0.1795, instance_area=5.032e+05, clock_skew_setup=0.6413)
+  #3 CORE_ASPECT_RATIO=0.7, CTS_BUF_DISTANCE=70.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, HOLD_SLACK_MARGIN=0.1, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.2101, power_total=0.1254, instance_area=4.636e+05, clock_skew_setup=0.6156)
+  #4 CORE_UTILIZATION=55.0, CTS_BUF_DISTANCE=150.0, CTS_CLUSTER_DIAMETER=50.0, CTS_CLUSTER_SIZE=20, GPL_TIMING_DRIVEN=1, PLACE_DENSITY=0.8, SETUP_SLACK_MARGIN=0.15 -> built (worst_slack=0.1491, power_total=0.1382, instance_area=4.642e+05, clock_skew_setup=0.6208)
+  #5 CORE_UTILIZATION=40.0, CTS_CLUSTER_DIAMETER=50.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.6, ROUTING_LAYER_ADJUSTMENT=0.3, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.4112, power_total=0.1515, instance_area=4.808e+05, clock_skew_setup=0.5659)
+  #6 CTS_BUF_DISTANCE=100.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_TIMING_DRIVEN=1, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.00976, power_total=0.1332, instance_area=4.684e+05, clock_skew_setup=0.6216)
+  #7 CORE_UTILIZATION=30.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.3, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.07562, power_total=0.1814, instance_area=5.107e+05, clock_skew_setup=0.6636)
+  #8 CORE_UTILIZATION=40.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, HOLD_SLACK_MARGIN=0.0, PLACE_DENSITY=0.6, ROUTING_LAYER_ADJUSTMENT=0.5, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.3869, power_total=0.1795, instance_area=5.032e+05, clock_skew_setup=0.6413)
+  #9 CORE_UTILIZATION=40.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.6, ROUTING_LAYER_ADJUSTMENT=0.3, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.3063, power_total=0.1303, instance_area=4.64e+05, clock_skew_setup=0.6065)
+  #10 CORE_UTILIZATION=50.0, CTS_BUF_DISTANCE=130.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.7, SETUP_SLACK_MARGIN=0.15 -> built (worst_slack=0.1695, power_total=0.128, instance_area=4.571e+05, clock_skew_setup=0.6063)
+  #11 CORE_ASPECT_RATIO=1.0, CTS_BUF_DISTANCE=100.0, CTS_CLUSTER_DIAMETER=70.0, CTS_CLUSTER_SIZE=30, GPL_TIMING_DRIVEN=1, HOLD_SLACK_MARGIN=0.05, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.0169, power_total=0.1332, instance_area=4.695e+05, clock_skew_setup=0.6124)
+  #12 CORE_UTILIZATION=30.0, CTS_CLUSTER_DIAMETER=35.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.5, ROUTING_LAYER_ADJUSTMENT=0.7, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.07562, power_total=0.1814, instance_area=5.107e+05, clock_skew_setup=0.6636)
+
+=== stats === {
+ "proposed": 12,
+ "rejected": 0,
+ "built": 12,
+ "failed": 0,
+ "tool_runs": 24,
+ "build_seconds_total": 32830.2
+}
+
+=== best by worst_slack ===
+  #5 CORE_UTILIZATION=40.0, CTS_CLUSTER_DIAMETER=50.0, CTS_CLUSTER_SIZE=12, GPL_ROUTABILITY_DRIVEN=1, PLACE_DENSITY=0.6, ROUTING_LAYER_ADJUSTMENT=0.3, SETUP_SLACK_MARGIN=0.1 -> built (worst_slack=0.4112, power_total=0.1515, instance_area=4.808e+05, clock_skew_setup=0.5659)
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Waiting for application shutdown.
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Application shutdown complete.
+[36m(_ToolServerActor pid=1328571)[0m INFO:     Finished server process [1328571]
