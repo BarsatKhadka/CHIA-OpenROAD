@@ -173,7 +173,10 @@ import json as _json, tempfile as _tf
 from chia_openroad.openroad import _timing_csv_agrees
 _d = _tf.mkdtemp(); _logs = os.path.join(_d, "logs"); _res = os.path.join(_d, "results")
 os.makedirs(_logs); os.makedirs(_res)
-_json.dump({"placeopt__timing__setup__ws": -1.05}, open(os.path.join(_logs, "3_place.json"), "w"))
+# a stage writes one JSON per sub-step; only the last matches 3_place.odb
+_json.dump({"globalplace__timing__setup__ws": -2.10}, open(os.path.join(_logs, "3_3_place_gp.json"), "w"))
+_json.dump({"placeopt__timing__setup__ws": -1.90}, open(os.path.join(_logs, "3_4_place_resized.json"), "w"))
+_json.dump({"detailedplace__timing__setup__ws": -1.05}, open(os.path.join(_logs, "3_5_place_dp.json"), "w"))
 _json.dump({"finish__timing__setup__ws": -0.2755}, open(os.path.join(_logs, "6_report.json"), "w"))
 open(os.path.join(_res, "clock_period.txt"), "w").write("6.5")
 _dirs = {"logs": _logs, "results": _res}

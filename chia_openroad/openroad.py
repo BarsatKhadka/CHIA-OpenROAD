@@ -423,10 +423,17 @@ def _timing_csv_agrees(csv_path: str, stage: str, dirs: dict[str, str]) -> bool:
     # extraction at `place` was checked against 6_report.json's post-route slack
     # and rejected for differing by 0.79 ns, which is simply the difference
     # between placement timing and routed timing on the same design.
+    # A stage writes one JSON per sub-step, and only the last describes the
+    # checkpoint we extract from. Placement writes 3_3_place_gp (global place),
+    # 3_4_place_resized (after resizing) and 3_5_place_dp (detailed place);
+    # 3_place.odb is the output of the last. Comparing against the first rejects
+    # a correct extraction whenever optimisation moves timing appreciably --
+    # on cb_aes global place reported -2.x against a true -1.07.
     prefix = str(STAGE_PREFIX.get(stage, ""))
     candidates = sorted(_glob.glob(os.path.join(dirs["logs"], "*.json")))
-    same_stage = [p for p in candidates
-                  if os.path.basename(p).startswith(prefix + "_")] if prefix else []
+    same_stage = list(reversed([p for p in candidates
+                                if os.path.basename(p).startswith(prefix + "_")])) \
+        if prefix else []
     reported = None
     for path in (same_stage or sorted(candidates, reverse=True)):
         try:
