@@ -28,7 +28,17 @@ ck("still works with no baseline", "vs default" not in no_base and "#1" in no_ba
 import inspect
 from chia_openroad import iterate
 src = inspect.getsource(iterate.run_iterations)
-ck("turn>1 asks for refinement", "must REFINE the best result so far" in src)
+ck("turn>1 asks for refinement", "must REFINE the best" in src)
+
+# The split adapts to headroom: converge when behind the default, keep
+# exploring when ahead. Fixed at half it helped cb_picorv32 (no headroom) and
+# cost cb_ethmac (ample headroom) 0.134 ns of median.
+from chia_openroad.iterate import _n_refine
+ck("behind the default, most of the turn refines", _n_refine(4, False) == 2,
+   f"{_n_refine(4, False)}/4 refine")
+ck("ahead of the default, most of the turn explores", _n_refine(4, True) == 1,
+   f"{_n_refine(4, True)}/4 refine")
+ck("always at least one refiner", _n_refine(1, True) >= 1 and _n_refine(2, False) >= 1)
 ck("turn 1 asks for spread", "spread these configurations widely" in src)
 ck("the exploration-only instruction is gone",
    "genuinely different from each other" not in src)

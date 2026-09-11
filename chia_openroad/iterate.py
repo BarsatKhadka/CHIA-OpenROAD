@@ -259,6 +259,25 @@ def ask_with_tools(client, model: str, system: str, prompt: str, tool,
     return final, made
 
 
+
+def _n_refine(per_iteration: int, ahead: bool) -> int:
+    """How many of this turn's candidates should refine the leader.
+
+    Fixed at half, this helped where the default was already near-optimal and
+    hurt where the space was rich. Measured across four designs: cb_picorv32
+    (default -0.2352, best reachable about -0.2351, so no headroom) went from a
+    worsening search to an improving one, while cb_ethmac (default +0.1106, a
+    previous run reaching +0.3703, so ample headroom) lost 0.134 ns of median
+    and half its hit rate, because refining one or two knobs off the leader
+    cannot travel far enough to find what exploration was finding.
+
+    So make it conditional on whether the search is already beating the
+    default. Behind it, converge. Ahead of it, keep most of the budget on
+    exploration and spend one candidate consolidating.
+    """
+    return 1 if ahead else max(1, (per_iteration + 1) // 2)
+
+
 def run_iterations(*, client, model, system, store, failures, screen, policy,
                    build, iterations: int, per_iteration: int,
                    objective: str = "worst_slack", better: str = "higher",
@@ -293,17 +312,28 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
     # turn 2.
     transcript = []
     for i in range(iterations):
+        # Is the best result so far ahead of the default? That decides how
+        # much of this turn goes to refinement versus exploration.
+        ahead = False
+        if baseline and isinstance(baseline.get(objective), (int, float)):
+            vals = [ (c.metrics or {}).get(objective)
+                     for c in store.list(status="built", limit=200) ]
+            vals = [v for v in vals if isinstance(v, (int, float))]
+            if vals:
+                best_so_far = max(vals) if better == "higher" else min(vals)
+                ahead = (best_so_far > baseline[objective]) if better == "higher" \
+                    else (best_so_far < baseline[objective])
         state = render_state(store, screen, failures, baseline=baseline)
         prompt = (
             f"{state}\n\n## Your task, iteration {i + 1} of {iterations}\n\n"
             f"Propose exactly {per_iteration} configurations to build next. "
             f"They run in parallel, so make them different from each other.\n\n"
-            + (f"Spend this turn as follows. At least half of your "
-               f"configurations must REFINE the best result so far, each "
-               f"changing only one or two knobs from it so you can tell "
-               f"which change was responsible. The rest may explore "
-               f"elsewhere. Do not re-propose a configuration already "
-               f"built.\n\n" if i > 0 else
+            + (f"Spend this turn as follows. {_n_refine(per_iteration, ahead)} "
+               f"of your {per_iteration} configurations must REFINE the best "
+               f"result so far, each changing only one or two knobs from it "
+               f"so you can tell which change was responsible. The rest must "
+               f"explore elsewhere. Do not re-propose a configuration "
+               f"already built.\n\n" if i > 0 else
                f"This is the first turn and nothing has been built yet, so "
                f"spread these configurations widely across the knobs you "
                f"think matter.\n\n")
