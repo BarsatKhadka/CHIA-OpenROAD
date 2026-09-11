@@ -145,17 +145,47 @@ def parse_proposals(text: str, policy, want: int) -> tuple[list[dict], list[str]
     return accepted, rejected
 
 
+def _retrying(call, what: str, attempts: int = 5, base_delay: float = 20.0):
+    """Retry a model call through transient quota and server errors.
+
+    A turn that loses its model call ends the whole run: run_iterations breaks
+    out of the loop, and the ledger is archived with however many turns it had.
+    Measured on cb_sha256, where three loops running concurrently exhausted the
+    Vertex quota and turn 3 died with 429 RESOURCE_EXHAUSTED, leaving a
+    two-turn run that looked like an agent that had stopped improving.
+    """
+    import random
+    for attempt in range(attempts):
+        try:
+            return call()
+        except Exception as exc:
+            text = str(exc)
+            transient = any(code in text for code in
+                            ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE",
+                             "500", "INTERNAL", "DEADLINE_EXCEEDED"))
+            if not transient or attempt == attempts - 1:
+                raise
+            delay = base_delay * (2 ** attempt) + random.uniform(0, 5)
+            logger.warning("%s failed (%s); retrying in %.0fs (attempt %d/%d)",
+                           what, text[:80], delay, attempt + 1, attempts)
+            time.sleep(delay)
+
+
 def ask(client, model: str, system: str, prompt: str, timeout_s: int = 180) -> str:
     """One short, bounded model call. No tools, so nothing can hang on a build."""
     from google.genai import types
-    response = client.models.generate_content(
-        model=model,
-        contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-        config=types.GenerateContentConfig(system_instruction=system or None,
-                                           temperature=0.5),
-    )
-    return "".join(p.text for p in (response.candidates[0].content.parts or [])
-                   if getattr(p, "text", None))
+
+    def once():
+        response = client.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+            config=types.GenerateContentConfig(system_instruction=system or None,
+                                               temperature=0.5),
+        )
+        return "".join(p.text for p in (response.candidates[0].content.parts or [])
+                       if getattr(p, "text", None))
+
+    return _retrying(once, "model call")
 
 
 
@@ -193,13 +223,14 @@ def ask_with_tools(client, model: str, system: str, prompt: str, tool,
     history = [types.Content(role="user", parts=[types.Part(text=prompt)])]
     made, final = [], ""
     for _ in range(max_calls):
-        resp = client.models.generate_content(
+        resp = _retrying(lambda: client.models.generate_content(
             model=model, contents=history,
             config=types.GenerateContentConfig(
                 system_instruction=system or None,
                 tools=[types.Tool(function_declarations=decls)],
                 temperature=0.4,
-                http_options=types.HttpOptions(timeout=timeout_s * 1000)))
+                http_options=types.HttpOptions(timeout=timeout_s * 1000))),
+            "tool-calling model call")
         cand = (resp.candidates or [None])[0]
         if cand is None or not cand.content:
             break
