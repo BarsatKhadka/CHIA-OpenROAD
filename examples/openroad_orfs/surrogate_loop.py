@@ -218,6 +218,19 @@ def main():
     with OpenROADNode() as node:
         branched = set()
 
+        # Thread budget for work the driver runs itself -- the shared
+        # placement, the measured default, and the surrogate's K-shot anchors.
+        # run_stage falls back to os.cpu_count() when given nothing, so each of
+        # those was taking all 32 threads. With four designs starting at once
+        # that is 128 threads on 32 cores and a load average of 82: builds
+        # thrash instead of finishing. Candidates already divide by the slot
+        # count; this makes the driver's own calls do the same.
+        _slots = max(1, int(ray.cluster_resources().get("orfs", 1)))
+        _cpus = int(ray.cluster_resources().get("CPU", os.cpu_count() or 1))
+        node_threads = max(1, _cpus // _slots)
+        print(f"    driver threads per build: {node_threads} "
+              f"({_cpus} cpu / {_slots} slots)", flush=True)
+
         def run(stage, **kw):
             """The loop's ORFS callable.
 
@@ -232,7 +245,7 @@ def main():
                 branched.add(work)
                 get(node.branch.chia_remote(base, work, kw["design_config"],
                                             through_stage="place"))
-            r = get(node.run_stage.chia_remote(stage, **kw))
+            r = get(node.run_stage.chia_remote(stage, num_cores=node_threads, **kw))
             if r.success and stage in ("route", "finish"):
                 r.summary.update(get(node.measure_clock.chia_remote(
                     kw["work_home"], kw["design_config"], stage="route")))
