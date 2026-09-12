@@ -259,16 +259,30 @@ class ORFSAgentTool(ChiaTool):
 
         Args:
             knobs: ORFS knob names to values, e.g. {"CTS_CLUSTER_SIZE": 20}.
-                These are the FULL configuration, not a delta — anything you
-                omit takes this design's default, whatever the parent used.
-            parent_id: build starting from that candidate's design state
-                instead of from the shared placement. 0 means start from the
-                shared placement. Use it to say "this is a variation on #14";
-                it records the lineage so the exploration is a visible tree.
-                Note it rarely saves time on this design — routing dominates,
-                and almost any knob change forces a full re-route.
+                With parent_id set these are a DELTA on that candidate: its
+                knobs are inherited and yours override them, so listing one
+                knob means "that configuration, with this one changed". With
+                no parent they are the full configuration and anything omitted
+                takes the design's default.
+            parent_id: derive from that candidate. 0 means start fresh from
+                the shared placement. It records the lineage so the search
+                reads as a tree, and it is what makes refinement possible.
         """
         parent = int(parent_id) or None
+        # Inherit the parent's knobs under the delta. Without this a
+        # refinement collapses to a near-default configuration: the agent
+        # writes {"from": 6, "CTS_BUF_DISTANCE": 70} meaning "#6 with this one
+        # knob changed", and every other knob #6 set silently reverts. Measured
+        # on cb_picorv32, where #6 itself carried one knob instead of its
+        # parent's four, and #9 and #10 each carried exactly one. Every
+        # "refinement" in the v2 and v3 runs was in fact a fresh
+        # near-default build, which is why refining the leader did not behave
+        # like refining anything.
+        if parent:
+            prow = self.store.get(parent)
+            inherited = dict(getattr(prow, "knobs", None) or {}) if prow else {}
+            if inherited:
+                knobs = {**inherited, **dict(knobs)}
         cid = self.store.propose(knobs, arm=self.arm, parent_id=parent)
 
         ok, reason = self.policy.check(knobs)

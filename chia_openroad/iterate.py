@@ -347,9 +347,13 @@ def run_iterations(*, client, model, system, store, failures, screen, policy,
             f"and almost any change forces a full re-route. So the question is "
             f"not how to make an experiment cheap, it is which experiments are "
             f"worth an hour. You have {iterations - i} iteration(s) left.\n\n"
-            f"You may derive a configuration from an earlier one by adding "
-            f'`"from": <id>` to its JSON. That records the lineage so the search '
-            f"reads as a tree; it does not change the cost.\n\n"
+            f'Add `"from": <id>` to derive from an earlier configuration. '
+            f"That candidate's knobs are inherited and anything you list "
+            f"overrides them, so "
+            f'`{{"from": 6, "CTS_CLUSTER_SIZE": 30}}` means #6 with that one '
+            f"knob changed. Without a `from`, your JSON is the whole "
+            f"configuration and every knob you omit takes the design's "
+            f"default.\n\n"
             f"Legal knobs and ranges:\n{policy.describe_for_agent()}\n\n"
             + (f"You may call the read-only tools available to you first — "
                f"they cost milliseconds, and predict_knobs will price any "
