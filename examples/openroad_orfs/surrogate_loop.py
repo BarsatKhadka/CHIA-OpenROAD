@@ -226,7 +226,12 @@ def main():
         # thrash instead of finishing. Candidates already divide by the slot
         # count; this makes the driver's own calls do the same.
         _slots = max(1, int(ray.cluster_resources().get("orfs", 1)))
-        _cpus = int(ray.cluster_resources().get("CPU", os.cpu_count() or 1))
+        # Ray's CPU total counts the head and the worker separately, and here
+        # they are the same physical machine: it reports 64 on a 32-core host.
+        # Dividing that by the slot count hands out twice the threads that
+        # exist. Cap by the machine's real cores.
+        _cpus = min(int(ray.cluster_resources().get("CPU", os.cpu_count() or 1)),
+                    os.cpu_count() or 1)
         node_threads = max(1, _cpus // _slots)
         print(f"    driver threads per build: {node_threads} "
               f"({_cpus} cpu / {_slots} slots)", flush=True)
