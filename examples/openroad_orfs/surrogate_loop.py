@@ -233,8 +233,13 @@ def main():
         _cpus = min(int(ray.cluster_resources().get("CPU", os.cpu_count() or 1)),
                     os.cpu_count() or 1)
         node_threads = max(1, _cpus // _slots)
+        from chia_openroad.orfs_tools import (STAGE_TIMEOUT_SECONDS,
+                                              REFERENCE_THREADS)
+        driver_timeout = int(STAGE_TIMEOUT_SECONDS *
+                             max(1.0, REFERENCE_THREADS / float(node_threads)))
         print(f"    driver threads per build: {node_threads} "
-              f"({_cpus} cpu / {_slots} slots)", flush=True)
+              f"({_cpus} cpu / {_slots} slots), stage cap {driver_timeout}s",
+              flush=True)
 
         def run(stage, **kw):
             """The loop's ORFS callable.
@@ -250,7 +255,9 @@ def main():
                 branched.add(work)
                 get(node.branch.chia_remote(base, work, kw["design_config"],
                                             through_stage="place"))
-            r = get(node.run_stage.chia_remote(stage, num_cores=node_threads, **kw))
+            r = get(node.run_stage.chia_remote(
+                stage, num_cores=node_threads,
+                timeout_seconds=driver_timeout, **kw))
             if r.success and stage in ("route", "finish"):
                 r.summary.update(get(node.measure_clock.chia_remote(
                     kw["work_home"], kw["design_config"], stage="route")))

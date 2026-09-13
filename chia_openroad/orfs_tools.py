@@ -68,6 +68,11 @@ MAX_POLL_SECONDS_LOCAL = 5400
 #: useful thing for the agent to learn about a floorplan.
 STAGE_TIMEOUT_SECONDS = 5400
 
+#: Thread count STAGE_TIMEOUT_SECONDS was measured against. A build with fewer
+#: threads needs proportionally longer, so the cap scales rather than staying
+#: fixed while the slot count changes underneath it.
+REFERENCE_THREADS = 4
+
 
 
 def _breaks_anchor(cfg: dict, observes_stage: str | None) -> list[str]:
@@ -116,7 +121,13 @@ def _run_candidate(work_home: str, design_config: str, knobs: dict,
     if num_cores:
         run_kw["num_cores"] = num_cores
     if stage_timeout:
-        run_kw["timeout_seconds"] = stage_timeout
+        # Scale the cap with the thread budget. 5400 s was measured when a
+        # build had four threads; at two it is below the time a healthy
+        # detailed route needs, so raising the slot count to fill the machine
+        # turned the safety net into the main cause of failure -- cb_aes came
+        # back 6 built against 10 timed out, and cb_ethmac 9 against 11.
+        scale = max(1.0, REFERENCE_THREADS / float(num_cores or REFERENCE_THREADS))
+        run_kw["timeout_seconds"] = int(stage_timeout * scale)
     with OpenROADNode() as node:
         if branch_from:
             # Seed from the shared prefix so make resumes at the first stage
