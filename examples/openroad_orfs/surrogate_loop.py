@@ -189,6 +189,15 @@ def main():
                          "enforced here rather than by the backend")
     ap.add_argument("--no-agent", action="store_true",
                     help="screen and build the top picks without an LLM")
+    ap.add_argument("--multi-fidelity", action="store_true",
+                    help="evaluate candidates to the gate stage only, then "
+                         "promote the best few to full builds. Reaching CTS "
+                         "costs about 7 percent of a flow because detailed "
+                         "routing dominates, so the same budget buys far more "
+                         "configurations")
+    ap.add_argument("--promote", type=int, default=2,
+                    help="how many quick-evaluated candidates per turn to "
+                         "promote to a full build")
     ap.add_argument("--no-tools", action="store_true",
                     help="deny the agent read-only tool calls inside a turn "
                          "(control arm: everything is pushed in the prompt)")
@@ -329,6 +338,7 @@ def main():
             # a CTS quality model plugs in both, and predict_knobs asks each
             # about the knobs it observes.
             surrogates=[surrogate], state=state,
+            multi_fidelity=args.multi_fidelity,
             parallel_slots=int(ray.cluster_resources().get("orfs", 1)),
             local_calls=not args.no_agent,
             task_options={"scheduling_strategy": __import__(
@@ -399,12 +409,39 @@ def main():
                         print(f"    {reply}", flush=True)
                         if "started" in reply:
                             ids.append(int(reply.split()[1]))
+                    def drain(cids):
+                        for cid in cids:
+                            while True:
+                                status = tool.candidate_status(cid, max_wait_seconds=3000)
+                                if "is running" not in status and "starting up" not in status:
+                                    break
+                            print(f"    {status}", flush=True)
+
+                    drain(ids)
+                    if not args.multi_fidelity:
+                        return
+                    # Everything above stopped at the gate. Rank what survived
+                    # and pay for a full build only on the best few: reaching
+                    # CTS costs about 7% of a flow, so the quick pass is nearly
+                    # free next to the routing it avoids.
+                    scored = []
                     for cid in ids:
-                        while True:
-                            status = tool.candidate_status(cid, max_wait_seconds=3000)
-                            if "is running" not in status and "starting up" not in status:
-                                break
-                        print(f"    {status}", flush=True)
+                        row = store.get(cid)
+                        if row and row.status == "built" and row.metrics:
+                            v = row.metrics.get("worst_slack")
+                            if isinstance(v, (int, float)):
+                                scored.append((v, cid))
+                    scored.sort(reverse=True)
+                    chosen = [cid for _, cid in scored[:max(1, args.promote)]]
+                    if not chosen:
+                        print("    no quick result to promote", flush=True)
+                        return
+                    print(f"    promoting {chosen} of {len(ids)} "
+                          f"(quick slack {', '.join(f'{v:+.4f}' for v, _ in scored[:len(chosen)])})",
+                          flush=True)
+                    for cid in chosen:
+                        print(f"    {tool.promote_candidate(cid)}", flush=True)
+                    drain(chosen)
 
                 def consult(knob_dicts):
                     """Price a shortlist with the fitted model, in milliseconds.

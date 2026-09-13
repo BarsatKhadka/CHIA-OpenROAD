@@ -170,7 +170,8 @@ class ORFSAgentTool(ChiaTool):
               branch_through: str = "place", screen: dict | None = None,
               measure_clock: bool = False, parallel_slots: int = 1,
               local_calls: bool = False, surrogate=None, surrogates=None,
-              state=None):
+              state=None, multi_fidelity: bool = False,
+              quick_stage: str = DEFAULT_GATE_STAGE):
         #: In-flight candidates: id -> ObjectRef.
         #:
         #: A plain dict, deliberately. An earlier version kept these in a Ray
@@ -220,6 +221,10 @@ class ORFSAgentTool(ChiaTool):
         #: Kept for callers that only ever had one.
         self.surrogate = self.surrogates[0] if self.surrogates else None
         self.state = state
+        #: Evaluate candidates only to `quick_stage` and promote the best to a
+        #: full build, rather than paying a full flow for every proposal.
+        self.multi_fidelity = multi_fidelity
+        self.quick_stage = quick_stage
         self.measure_clock = measure_clock
         #: Threads each candidate may use. One `orfs` slot is about one core,
         #: so a candidate must not claim the whole machine: three candidates
@@ -321,16 +326,49 @@ class ORFSAgentTool(ChiaTool):
             prior = self.store.get(parent)
             if prior and prior.status == "built":
                 seed = f"{self.work_root}/{self.run_token}-cand-{parent:05d}"
+        # Quick-stage evaluation stops at the gate. On aes/sky130hd reaching
+        # CTS costs 121 s of a 1721 s flow -- 7% -- because detailed routing is
+        # 76% of the total. Its slack ranks candidates well enough to choose
+        # between them (Spearman +0.77 against final slack on paired runs), so
+        # the budget buys roughly fourteen times as many configurations and
+        # only the promising ones are paid for in full.
+        target = self.quick_stage if self.multi_fidelity else "finish"
+        gate = None if self.multi_fidelity else self.gate
         ref = _run_candidate.remote(f"{self.work_root}/{self.run_token}-cand-{cid:05d}",
-                                    self.design_config, knobs, self.gate,
-                                    "finish", self.orfs_home,
+                                    self.design_config, knobs, gate,
+                                    target, self.orfs_home,
                                     seed, self.branch_through,
-                                    self.measure_clock, self.num_cores)
+                                    self.measure_clock and not self.multi_fidelity,
+                                    self.num_cores)
         self._pending[cid] = ref
+        if self.multi_fidelity:
+            return (f"candidate {cid} started with {knobs}. It is a quick "
+                    f"evaluation to {target}, a fraction of a full flow; the "
+                    f"best of these get promoted to a full build afterwards.")
         return (f"candidate {cid} started with {knobs}. A full build takes "
                 f"around an hour. Up to {self.parallel_slots} candidates run at "
                 f"once, so propose the others you want now and poll them all "
                 f"afterwards rather than waiting on this one.")
+
+    def promote_candidate(self, candidate_id: int) -> str:
+        """Continue an already quick-evaluated candidate to a full build.
+
+        The work directory still holds every checkpoint the quick stage wrote,
+        so this resumes rather than rebuilding: the cost is the stages after
+        the gate, which is where the time actually goes.
+        """
+        cid = int(candidate_id)
+        row = self.store.get(cid)
+        if row is None:
+            return f"no candidate {cid}"
+        work = f"{self.work_root}/{self.run_token}-cand-{cid:05d}"
+        ref = _run_candidate.remote(work, self.design_config, dict(row.knobs or {}),
+                                    None, "finish", self.orfs_home,
+                                    None, self.branch_through,
+                                    self.measure_clock, self.num_cores)
+        self._pending[cid] = ref
+        self.store.mark_running(cid) if hasattr(self.store, "mark_running") else None
+        return f"candidate {cid} promoted to a full build."
 
     def candidate_status(self, candidate_id: int, max_wait_seconds: int = 60) -> str:
         """Check a candidate, optionally waiting for it.

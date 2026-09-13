@@ -110,11 +110,16 @@ def render_state(store, screen, failures, baseline=None, top_n: int = 12) -> str
                 v = m.get(k)
                 return f"{v:.5g}" if isinstance(v, (int, float)) else "-"
             parent = f"#{c.parent_id}" if c.parent_id else "base"
+            # A quick-stage number is measured before routing and is not
+            # comparable with a full result; say so rather than letting the
+            # agent read a CTS slack as a final one.
+            quick = "" if getattr(c, "stage_reached", None) in (None, "finish") \
+                else f" [quick @{c.stage_reached}]"
             delta = ""
             bs = (baseline or {}).get("worst_slack")
             if isinstance(m.get("worst_slack"), (int, float)) and isinstance(bs, (int, float)):
                 delta = f" ({m['worst_slack'] - bs:+.4f} vs default)"
-            lines.append(f"| #{c.id} | {parent} | {knobs} | {g('worst_slack')}{delta} "
+            lines.append(f"| #{c.id} | {parent} | {knobs} | {g('worst_slack')}{delta}{quick} "
                          f"| {g('clock_skew_setup')} | {g('clock_wirelength_um')} "
                          f"| {g('power_total')} |")
     else:

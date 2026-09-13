@@ -550,6 +550,22 @@ def _summarize(metrics: dict, stage_metrics: dict[str, dict]) -> dict[str, float
             if key in source:
                 out[label] = source[key]
                 break
+    # A quick-stage build has no finish__* keys anywhere, but the stage it did
+    # reach reports the same quantities under its own prefix -- cts__timing__
+    # setup__ws rather than finish__timing__setup__ws. Take those so a
+    # candidate evaluated only to CTS still carries a comparable number, which
+    # is what makes ranking before promotion possible at all.
+    for label, key in SUMMARY_KEYS.items():
+        if label in out:
+            continue
+        suffix = key.split("__", 1)[1] if "__" in key else key
+        for source in sources:
+            for found, value in source.items():
+                if found.endswith(suffix) and isinstance(value, (int, float)):
+                    out[label] = value
+                    break
+            if label in out:
+                break
     return out
 
 

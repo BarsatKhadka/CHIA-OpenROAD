@@ -47,9 +47,27 @@ check("no tool names a forbidden capability",
 src = open("chia_openroad/orfs_tools.py").read()
 for bad in ("force_rebuild", "allow_unknown_knobs", "extra_make_args"):
     check(f"agent cannot pass {bad}", bad not in src.split('"""')[-1])
-check("run_flow target is hard-coded, not agent-chosen", '"finish"' in src)
-check("gate is set at construction, not per call",
-      "gate=self.gate" in src or "self.gate," in src)
+# Check the signature, not the source text: what matters is that no exposed
+# tool lets the agent choose how far a build runs or what gates it. Matching
+# on a substring broke the moment the call was refactored, while the invariant
+# it protects was untouched.
+import inspect as _inspect
+_Tool = orfs_tools.ORFSAgentTool
+# Only the methods actually offered to the agent. setup() is the driver's
+# constructor and legitimately takes gate and orfs_home; it is not reachable
+# from a prompt.
+_exposed = [n for n in dir(_Tool)
+            if not n.startswith("_") and callable(getattr(_Tool, n))
+            and n not in {"setup", "dict_entry", "mcp"}]
+_forbidden_params = {"gate", "target", "stage", "orfs_home", "force_rebuild",
+                     "allow_unknown_knobs", "extra_make_args", "timeout_seconds"}
+_leaks = {n: sorted(set(_inspect.signature(getattr(_Tool, n)).parameters)
+                    & _forbidden_params)
+          for n in _exposed
+          if set(_inspect.signature(getattr(_Tool, n)).parameters)
+          & _forbidden_params}
+check("no exposed tool lets the agent choose stage, gate or make arguments",
+      not _leaks, str(_leaks) if _leaks else f"{len(_exposed)} tools checked")
 
 print("\n=== policy gate is enforced before anything runs ===")
 pol = KnobPolicy()
