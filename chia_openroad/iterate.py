@@ -34,6 +34,47 @@ import time
 logger = logging.getLogger(__name__)
 
 
+
+def knob_evidence(built, objective="worst_slack", better="higher",
+                  min_obs=2, max_knobs=8) -> list:
+    """Mean objective per knob value, across everything built so far.
+
+    The agent sees individual candidates, each varying six to eight knobs at
+    once, and is expected to infer which knob did what. At four candidates a
+    turn it cannot. Meanwhile the aggregate signal is strong and sitting in the
+    ledger unused: pooling 69 cb_sha256 builds shows CORE_UTILIZATION=45
+    averaging -0.675 against 30 averaging -0.864, and SETUP_SLACK_MARGIN=0.0
+    averaging -0.682 against 0.1 averaging -0.778.
+
+    That matters because the right move is design-specific and the agent
+    carries priors from elsewhere. Lowering utilisation helps cb_aes and
+    cb_picorv32, so it proposes that on cb_sha256 too, where the opposite is
+    true. Showing the evidence lets it notice.
+    """
+    import statistics
+    from collections import defaultdict
+    seen = defaultdict(lambda: defaultdict(list))
+    for c in built:
+        v = (c.metrics or {}).get(objective)
+        if not isinstance(v, (int, float)):
+            continue
+        for name, val in (c.knobs or {}).items():
+            seen[name][str(val)].append(v)
+    out = []
+    for name, by_val in seen.items():
+        groups = {v: statistics.mean(xs) for v, xs in by_val.items()
+                  if len(xs) >= min_obs}
+        if len(groups) < 2:
+            continue
+        ranked = sorted(groups.items(), key=lambda t: t[1],
+                        reverse=(better == "higher"))
+        best, worst = ranked[0], ranked[-1]
+        out.append((abs(best[1] - worst[1]), name, best, worst,
+                    sum(len(x) for x in by_val.values())))
+    out.sort(reverse=True)
+    return out[:max_knobs]
+
+
 def render_state(store, screen, failures, baseline=None, top_n: int = 12) -> str:
     """The database as prompt text — the agent's whole memory of the run.
 
@@ -78,6 +119,22 @@ def render_state(store, screen, failures, baseline=None, top_n: int = 12) -> str
                          f"| {g('power_total')} |")
     else:
         lines.append("## Nothing has been built yet.\n")
+
+    ev = knob_evidence(built) if built else []
+    if ev:
+        lines.append("")
+        lines.append("## What the runs so far say about each knob")
+        lines.append("")
+        lines.append("Mean worst_slack across every build that set the knob to "
+                     "that value. Higher is better. This is evidence from THIS "
+                     "design, which may disagree with what usually works.")
+        lines.append("")
+        lines.append("| knob | best value seen | worst value seen | builds |")
+        lines.append("|---|---|---|---|")
+        for _, name, best, worst, n in ev:
+            lines.append(f"| {name} | {best[0]} -> {best[1]:.4g} | "
+                         f"{worst[0]} -> {worst[1]:.4g} | {n} |")
+        lines.append("")
 
     bad = failures.hints(limit=6)
     if bad:
