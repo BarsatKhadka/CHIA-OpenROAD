@@ -17,9 +17,7 @@
 \author{Barsat Khadka}
 \affiliation{\institution{}\country{}}
 
-\begin{abstract}
-% LAST.
-\end{abstract}
+
 \maketitle
 
 % ---------------------------------------------------------------- LAST -----
@@ -31,7 +29,19 @@ workflow is ordinary Python. A \emph{node} is a class whose methods, marked
 \texttt{@ChiaFunction}, run on cluster workers, and a \texttt{ChiaTool} exposes
 a chosen set of capabilities to an agent over MCP. Its published case studies
 share the pattern of agent proposing and editing, and a trusted, AI-free
-evaluation decides whether the result is accepted. 
+evaluation decides whether the result is accepted.
+
+This paper contributes a surrogate interface with three unlike implementations
+behind it, one a published clock-tree model, in which a model declares the
+stage it observes and the artifacts it needs and the loop supplies file paths
+rather than features. It contributes a trust boundary enforced in code rather
+than in a prompt, under which no tool the agent can call runs sign-off, parses
+a report, or invokes the flow. It contributes four measured causes of an
+agentic tuning loop failing to improve across turns, each fixed and each
+verified by the behaviour changing rather than the score alone. And it
+contributes a set of failures that produce plausible numbers rather than
+errors, which anyone building such a loop will meet.
+
 \section{The loop}
 
 \subsection{Where the flow runs}
@@ -161,12 +171,6 @@ of them must execute on the worker that holds it. Declaring the node as a
 \texttt{ColocatedNode} places its members in a single placement group and
 satisfies this.
 
-\textbf{Failure mode:} the declared unit count and the per-build thread count
-are two halves of one decision, and setting them independently oversubscribes
-the machine silently. Declaring four \texttt{orfs} units on a four-core host
-while each build also requested four threads placed sixteen threads on four
-cores. Load average reached 12.9 and every candidate ran roughly three times
-slower, with no gain in throughput.
 
 \section{The trust boundary}
 
@@ -265,6 +269,194 @@ import path for a plugin's dependencies, so the run fails at startup with a
 missing-module error that names neither the tool nor the model. The driver's
 copy holds the models and answers prediction requests; the actor's copy holds
 none and says so.
+
+
+
+\section{Experimental setup}
+
+Four designs are taken from CTS-Bench and ported into ORFS on the
+\texttt{sky130hd} open PDK, keeping the clock ports and top modules the
+benchmark uses. Each is given a clock period at which the shipped
+configuration lands close to timing closure, so the search has room to work.
+The periods are 6.5\,ns for \texttt{aes}, 4.5\,ns for \texttt{picorv32},
+10.4\,ns for \texttt{sha256} and 6.5\,ns for \texttt{ethmac}.
+
+Only \texttt{sha256} needed a period looser than its benchmark value, and the
+reason is worth stating. At 10\,ns it sits 0.58\,ns from closure, its critical
+path is logic-dominated, and no placement or clock-tree knob reaches it. Across
+89 builds spanning five versions of the loop, three configurations beat the
+default and by at most 0.044\,ns. At 10.4\,ns the same loop beats the default
+in its first turn. A design far from closure reports a flat response to every
+knob, and reading that as a failure of the search would be a mistake.
+
+Every run measures its own default rather than importing one, so the baseline
+is the configuration that run was optimising against. Runs are compared at
+equal budget. All experiments use a single 32-vCPU instance; the project is
+capped at 32 vCPUs globally, so throughput comes from evaluating candidates
+concurrently rather than from larger machines.
+
+\section{Results}
+\label{sec:results}
+
+\begin{table*}[!t]\scriptsize\centering
+\caption{Four arms on four designs, twelve builds each. \emph{best} is the best
+worst-slack reached, \emph{med} the median across that arm's builds,
+\emph{beat} how many beat the default. \emph{preCTS} counts builds
+that varied a knob read before clock-tree synthesis; it is zero for the screen
+arm, whose ranking covers clock-tree knobs only. Slack in ns, power in W, area
+in $\mu$m$^2$.}
+\label{tab:arms}
+\begin{tabular}{@{}llrrrrrr@{}}
+\toprule
+design & arm & best & med & power & area & beat & preCTS \\
+\midrule
+\texttt{aes}      & default & $-0.2755$ & --        & 0.0427 & 2.53e5 & --    & --    \\
+                  & screen  & $-0.1478$ & $-0.2304$ & 0.0420 & 2.51e5 & 10/12 & 0/12  \\
+                  & agent   & $-0.1651$ & $-0.2621$ & 0.0427 & 2.53e5 & 6/11  & 10/11 \\
+                  & full    & $-0.1618$ & $-0.1987$ & 0.0390 & 2.47e5 & 7/10  & 9/10  \\
+\midrule
+\texttt{picorv32} & default & $-0.2352$ & --        & 0.0354 & 1.03e5 & --    & --    \\
+                  & screen  & $-0.1660$ & $-0.2643$ & 0.0333 & 1.02e5 & 2/12  & 0/12  \\
+                  & agent   & $-0.1772$ & $-0.2645$ & 0.0343 & 1.03e5 & 1/11  & 9/11  \\
+                  & full    & $-0.2878$ & $-0.3723$ & 0.0347 & 1.03e5 & 0/12  & 12/12 \\
+\midrule
+\texttt{sha256}   & default & $-0.5778$ & --        & 0.0161 & 1.25e5 & --    & --    \\
+                  & screen  & $-0.6018$ & $-0.6381$ & 0.0148 & 1.24e5 & 0/12  & 0/12  \\
+                  & agent   & $-0.5471$ & $-0.7001$ & 0.0157 & 1.37e5 & 1/10  & 9/10  \\
+                  & full    & $-0.5342$ & $-0.7125$ & 0.0216 & 1.30e5 & 1/12  & 11/12 \\
+\midrule
+\texttt{ethmac}   & default & $+0.1106$ & --        & 0.1505 & 4.82e5 & --    & --    \\
+                  & screen  & $+0.1396$ & $+0.0659$ & 0.1322 & 4.68e5 & 2/12  & 0/12  \\
+                  & agent   & $+0.3169$ & $+0.1337$ & 0.1837 & 5.12e5 & 7/12  & 10/12 \\
+                  & full    & $+0.3703$ & $+0.2437$ & 0.1319 & 4.67e5 & 9/12  & 12/12 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{The four arms}
+
+Four arms are compared. \emph{Default} builds the shipped configuration once.
+\emph{Screen} builds the surrogate's top-ranked configurations with no LLM.
+\emph{Agent} runs the loop with the surrogate withheld. \emph{Full} is the
+whole loop. Each search arm gets twelve builds.
+
+No arm wins everywhere, and the disagreements are sharp
+(Table~\ref{tab:arms}). On \texttt{aes} the surrogate ranking alone reaches the
+best slack and clears the default in ten builds of twelve, while the full loop
+finds a slightly worse optimum using 8.5\% less power and 2.4\% less area and
+paying 15\% worse skew for it. On \texttt{ethmac} the full loop is best on
+every metric at once. On \texttt{sha256} the surrogate ranking fails outright,
+with no build beating the default, while both LLM arms beat it. On
+\texttt{picorv32} nothing works: every arm's median is worse than the shipped
+configuration.
+
+Two columns are reported because the conclusion depends on which is read.
+Ranking arms by their single best result rewards variance rather than quality.
+On \texttt{picorv32} the screen arm has the best single candidate while only
+two of twelve beat the default and its median is worse than doing nothing. On
+\texttt{aes} the two statistics disagree in the other direction, the full loop
+holding the best median while placing second on best-of-twelve.
+
+The \emph{preCTS} column counts builds that varied a knob read before
+clock-tree synthesis. It is zero throughout for the screen arm, because the
+precomputed ranking covers clock-tree knobs only. That arm differs from the
+agent arms in two respects at once, the LLM and the search space, and is not a
+clean measurement of what the LLM contributes.
+
+\subsection{Making the loop improve across turns}
+
+The loop above does not learn. Measured over three turns on four designs, the
+best result of each turn was flat or oscillating in seven of eight runs, with
+the third turn frequently worse than the second. Three causes were found, all
+in what the agent is shown rather than in the model.
+
+The prompt required every candidate to differ from everything already built,
+which makes refining a good configuration illegal and restarts the search each
+turn. A candidate derived from an earlier one did not inherit its parent's
+knobs, so an instruction to change one knob produced a near-default build with
+one knob set, and every refinement was silently a fresh sample. And the ledger
+never showed the default the loop was meant to beat, so a run where all twelve
+candidates lost looked identical to one where all twelve won.
+
+Fixing all three changes the behaviour rather than merely the score. On
+\texttt{picorv32} the per-turn best went from $-0.2878$, $-0.3149$, $-0.3459$,
+monotonically worse, to $-0.2801$, $-0.2455$, $-0.2351$, monotonically better,
+with the median improving by 0.095\,ns. Inheritance is visible directly in the
+data: the mean number of knobs per candidate rose from 3.0--3.8 to 5.5--7.3.
+
+A fourth change followed from the same diagnosis. The agent carries priors from
+other designs, and on \texttt{sha256} they are wrong. Pooling every build of
+that design shows \texttt{CORE\_UTILIZATION}$=45$ averaging $-0.675$ against
+$30$ at $-0.864$, the opposite of what helps \texttt{aes} and
+\texttt{picorv32}, and \texttt{SETUP\_SLACK\_MARGIN}$=0.0$ averaging $-0.682$
+against $0.1$ at $-0.778$. The agent could not see this from a table of twelve
+rows with six to eight knobs varying at once, so the loop now computes the
+aggregate per-knob effect from its own ledger and renders it, with a note that
+the evidence is design-specific.
+
+\begin{table}[!t]\footnotesize\centering
+\caption{The full loop after the four changes of \S5.2, evaluated
+multi-fidelity: 24 configurations scored at clock-tree synthesis, the best
+eight routed to GDS. \texttt{sha256} is measured at 10.4\,ns.}
+\label{tab:final}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+design & default & best & $\Delta$ & beat \\
+\midrule
+\texttt{aes}      & $-0.2755$ & $-0.1651$ & $+0.1104$ & 5/6 \\
+\texttt{picorv32} & $-0.2352$ & $-0.1874$ & $+0.0478$ & 6/8 \\
+\texttt{sha256}   & $-0.3921$ & $-0.1513$ & $+0.2408$ & 7/8 \\
+\texttt{ethmac}   & $+0.1106$ & $+0.4131$ & $+0.3025$ & 8/8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The loop after those changes}
+
+Table~\ref{tab:final} reports the full loop with all four changes, evaluated
+multi-fidelity. Every design improves on its default, and on three of the four
+nearly every routed candidate does. \texttt{sha256} is the clearest case: the
+design that produced three wins in 89 builds now produces seven in eight.
+
+\subsection{What multi-fidelity costs}
+
+Candidates are scored at clock-tree synthesis and only the best are routed.
+A quick evaluation averaged 1.0\,min against 22.9\,min for a full build on
+\texttt{picorv32}, about 4\%, because detailed routing is roughly three
+quarters of a flow. Exploring 24 configurations and routing eight cost 363\,min
+on \texttt{sha256} against an estimated 1007\,min had all 24 been routed, and
+215\,min against 566\,min on \texttt{picorv32} --- 2.8$\times$ and
+2.6$\times$ cheaper for the same coverage. The saving is smaller than the
+per-build ratio suggests because promoted builds still pay full price.
+
+The trade is real. On \texttt{picorv32} the all-full run reached $-0.1482$
+while the multi-fidelity run reached $-0.1874$: routing eight of 24 candidates
+rather than all of them means a good configuration can go unpromoted, since
+quick-stage slack ranks candidates at a Spearman correlation of $+0.77$ against
+final slack rather than perfectly.
+
+
+
+\section{Limitations}
+
+Every cell is a single run. Two configurations that allocate their budget
+identically differed by 0.057\,ns in median on the same design, so that is the
+noise floor, and differences smaller than it are not claimable. Seeds are the
+obvious remedy and were not affordable within the compute budget.
+
+The screen arm is not a clean control, as \S5.1 notes: it varies both the LLM
+and the search space. An arm restricting the agent to clock-tree knobs would
+isolate the LLM as a single variable.
+
+The surrogate is used for one of the three quantities it declares. On these
+designs it tracks clock wirelength to 2.6--3.1\% mean absolute error, but ORFS
+produces no SAIF, so its power prediction has rank correlation 0.00 and is
+unusable, and clock skew is not produced at all. An arm labelled ``with a
+surrogate'' that screens one of three declared objectives should say so.
+
+Sign-off is partial. DRC is clean; LVS is blocked by ORFS's own collateral,
+where \texttt{sky130hd.cdl} is in a dialect the packaged KLayout cannot read
+and the netlists do not match once that is worked around.
 
 
 
