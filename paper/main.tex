@@ -298,6 +298,8 @@ concurrently rather than from larger machines.
 \section{Results}
 \label{sec:results}
 
+\subsection{Does any of it help?}
+
 \begin{table*}[!t]\scriptsize\centering
 \caption{Four arms on four designs, twelve builds each. \emph{best} is the best
 worst-slack reached, \emph{med} the median across that arm's builds,
@@ -333,66 +335,71 @@ design & arm & best & med & power & area & beat & preCTS \\
 \end{tabular}
 \end{table*}
 
-\subsection{The four arms}
-
 Four arms are compared. \emph{Default} builds the shipped configuration once.
 \emph{Screen} builds the surrogate's top-ranked configurations with no LLM.
 \emph{Agent} runs the loop with the surrogate withheld. \emph{Full} is the
 whole loop. Each search arm gets twelve builds.
 
-No arm wins everywhere, and the disagreements are sharp
-(Table~\ref{tab:arms}). On \texttt{aes} the surrogate ranking alone reaches the
-best slack and clears the default in ten builds of twelve, while the full loop
-finds a slightly worse optimum using 8.5\% less power and 2.4\% less area and
-paying 15\% worse skew for it. On \texttt{ethmac} the full loop is best on
-every metric at once. On \texttt{sha256} the surrogate ranking fails outright,
-with no build beating the default, while both LLM arms beat it. On
-\texttt{picorv32} nothing works: every arm's median is worse than the shipped
-configuration.
+The answer is that it depends on the design, sharply
+(Table~\ref{tab:arms}). On \texttt{ethmac} the full loop is best on every
+metric at once. On \texttt{aes} the surrogate ranking alone reaches the best
+slack while the full loop spends 8.5\% less power and 2.4\% less area for 15\%
+worse skew. On \texttt{sha256} the surrogate ranking fails outright with no
+build beating the default, though both LLM arms beat it. And on
+\texttt{picorv32} nothing works at all: every arm's median is worse than simply
+building the shipped configuration.
 
-Two columns are reported because the conclusion depends on which is read.
-Ranking arms by their single best result rewards variance rather than quality.
-On \texttt{picorv32} the screen arm has the best single candidate while only
-two of twelve beat the default and its median is worse than doing nothing. On
-\texttt{aes} the two statistics disagree in the other direction, the full loop
-holding the best median while placing second on best-of-twelve.
+Two statistics are reported because they disagree. Ranking arms by their best
+single result rewards variance rather than quality, and \texttt{picorv32} shows
+why: the screen arm holds the best single candidate while only two of its
+twelve beat the default. On \texttt{aes} the disagreement runs the other way,
+the full loop holding the best median while placing second on best-of-twelve.
 
-The \emph{preCTS} column counts builds that varied a knob read before
-clock-tree synthesis. It is zero throughout for the screen arm, because the
-precomputed ranking covers clock-tree knobs only. That arm differs from the
-agent arms in two respects at once, the LLM and the search space, and is not a
-clean measurement of what the LLM contributes.
+\subsection{A loop that was not learning}
 
-\subsection{Making the loop improve across turns}
+That table hides something worse than an inconsistent winner. Measured over
+three turns on all four designs, the best result of each turn was flat or
+oscillating in seven of eight runs, and the third turn was frequently worse
+than the second. The loop was sampling, not searching, and a table of final
+scores cannot show that.
 
-The loop above does not learn. Measured over three turns on four designs, the
-best result of each turn was flat or oscillating in seven of eight runs, with
-the third turn frequently worse than the second. Three causes were found, all
-in what the agent is shown rather than in the model.
+\subsection{Four reasons, none of them the model}
 
-The prompt required every candidate to differ from everything already built,
-which makes refining a good configuration illegal and restarts the search each
-turn. A candidate derived from an earlier one did not inherit its parent's
-knobs, so an instruction to change one knob produced a near-default build with
-one knob set, and every refinement was silently a fresh sample. And the ledger
-never showed the default the loop was meant to beat, so a run where all twelve
-candidates lost looked identical to one where all twelve won.
-
-Fixing all three changes the behaviour rather than merely the score. On
-\texttt{picorv32} the per-turn best went from $-0.2878$, $-0.3149$, $-0.3459$,
-monotonically worse, to $-0.2801$, $-0.2455$, $-0.2351$, monotonically better,
-with the median improving by 0.095\,ns. Inheritance is visible directly in the
-data: the mean number of knobs per candidate rose from 3.0--3.8 to 5.5--7.3.
-
-A fourth change followed from the same diagnosis. The agent carries priors from
-other designs, and on \texttt{sha256} they are wrong. Pooling every build of
-that design shows \texttt{CORE\_UTILIZATION}$=45$ averaging $-0.675$ against
-$30$ at $-0.864$, the opposite of what helps \texttt{aes} and
-\texttt{picorv32}, and \texttt{SETUP\_SLACK\_MARGIN}$=0.0$ averaging $-0.682$
-against $0.1$ at $-0.778$. The agent could not see this from a table of twelve
+Every cause turned out to lie in what the agent was shown rather than in its
+reasoning. The prompt required each candidate to differ from everything already
+built, which makes refining a good configuration illegal and restarts the
+search every turn. A candidate derived from an earlier one did not inherit its
+parent's knobs, so ``take \#6 and change one knob'' produced a near-default
+build with a single knob set, and every refinement was silently a fresh sample.
+The ledger never showed the default the loop was meant to beat, so a run where
+all twelve candidates lost looked identical to one where all twelve won.
+Finally the agent carried priors from other designs: lowering core utilisation
+helps \texttt{aes} and \texttt{picorv32}, so it proposed that on
+\texttt{sha256}, where pooling every build of that design shows utilisation
+$45$ averaging $-0.675$ against $30$ at $-0.864$, and a setup margin of $0.0$
+averaging $-0.682$ against $0.1$ at $-0.778$. It could not see that from twelve
 rows with six to eight knobs varying at once, so the loop now computes the
-aggregate per-knob effect from its own ledger and renders it, with a note that
-the evidence is design-specific.
+aggregate per-knob effect from its own ledger and shows it, noting that the
+evidence is design-specific.
+
+Fixing all four changed the behaviour rather than only the score. On
+\texttt{picorv32} the per-turn best went from $-0.2878$, $-0.3149$, $-0.3459$,
+worse every turn, to $-0.2801$, $-0.2455$, $-0.2351$, better every turn, with
+the median improving by 0.095\,ns. That the inheritance fix landed is visible
+directly: the mean knobs per candidate rose from 3.0--3.8 to 5.5--7.3.
+
+\subsection{One design still lost, and the clock was why}
+
+\texttt{sha256} kept failing even after all four fixes. Across 89 builds
+spanning five versions of the loop, three configurations beat its default and
+by at most 0.044\,ns. The cause was not the search. At its benchmark period of
+10\,ns the design sits 0.58\,ns from closure with a logic-dominated critical
+path that no placement or clock-tree knob reaches, so every knob reports a flat
+response. Given 10.4\,ns the same loop beats the default in its first turn.
+A design far from closure will look identical to a search that does not work,
+and distinguishing the two matters.
+
+\subsection{Paying less for the same search}
 
 \begin{table}[!t]\footnotesize\centering
 \caption{The full loop after the four changes of \S5.2, evaluated
@@ -411,31 +418,24 @@ design & default & best & $\Delta$ & beat \\
 \end{tabular}
 \end{table}
 
-\subsection{The loop after those changes}
-
-Table~\ref{tab:final} reports the full loop with all four changes, evaluated
-multi-fidelity. Every design improves on its default, and on three of the four
-nearly every routed candidate does. \texttt{sha256} is the clearest case: the
-design that produced three wins in 89 builds now produces seven in eight.
-
-\subsection{What multi-fidelity costs}
-
-Candidates are scored at clock-tree synthesis and only the best are routed.
-A quick evaluation averaged 1.0\,min against 22.9\,min for a full build on
+The remaining cost is that every candidate is routed. Scoring at clock-tree
+synthesis instead averaged 1.0\,min against 22.9\,min for a full build on
 \texttt{picorv32}, about 4\%, because detailed routing is roughly three
-quarters of a flow. Exploring 24 configurations and routing eight cost 363\,min
-on \texttt{sha256} against an estimated 1007\,min had all 24 been routed, and
-215\,min against 566\,min on \texttt{picorv32} --- 2.8$\times$ and
-2.6$\times$ cheaper for the same coverage. The saving is smaller than the
-per-build ratio suggests because promoted builds still pay full price.
+quarters of a flow. Exploring 24 configurations and routing the best eight cost
+363\,min on \texttt{sha256} against an estimated 1007\,min had all 24 been
+routed, and 215\,min against 566\,min on \texttt{picorv32}. The saving is
+smaller than the per-build ratio implies because promoted builds still pay
+full price.
 
-The trade is real. On \texttt{picorv32} the all-full run reached $-0.1482$
-while the multi-fidelity run reached $-0.1874$: routing eight of 24 candidates
-rather than all of them means a good configuration can go unpromoted, since
-quick-stage slack ranks candidates at a Spearman correlation of $+0.77$ against
-final slack rather than perfectly.
+It is a trade rather than a free gain. On \texttt{picorv32} routing everything
+reached $-0.1482$ while routing eight of 24 reached $-0.1874$: quick-stage
+slack ranks candidates at a Spearman correlation of $+0.77$ against final
+slack, not perfectly, so a good configuration can go unpromoted.
 
-
+Table~\ref{tab:final} reports where this leaves the loop. All four designs
+improve on their defaults, and on three of them nearly every routed candidate
+does. \texttt{sha256} is the clearest: the design that produced three wins in
+89 builds now produces seven in eight.
 
 \section{Limitations}
 
